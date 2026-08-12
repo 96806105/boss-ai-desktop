@@ -1,4 +1,4 @@
-# BOSS AI 助手（桌面端）
+# BOSS直聘 AI 助手（桌面端）
 
 > 基于 Electron 的企业级多智能体求职辅助系统 —— 从打招呼到入职的全流程 AI 陪跑
 
@@ -6,6 +6,8 @@
 ![Electron](https://img.shields.io/badge/Electron-43.x-47848f)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Architecture](https://img.shields.io/badge/Architecture-Multi--Agent-8c5bd8)
+
+> ⚠️ **免责声明**：受 BOSS直聘、小红书等平台页面结构改版与反爬风控机制影响，部分功能（页面元素采集、登录态保持、搜索结果提取等）可能存在 Bug 或偶发失效，本项目将持续跟进修复。本项目仅供学习交流与个人求职使用，请合理控制使用频率，遵守各平台用户协议与相关法律法规；因使用本工具产生的一切后果由使用者自行承担。
 
 ---
 
@@ -27,7 +29,7 @@
 
 ## 项目简介
 
-BOSS AI 助手是一个面向求职场景的桌面应用：在系统内嵌 BOSS 直聘浏览器环境，右侧常驻 AI 面板，由 **6 个专业智能体（Agent）** 组成协作网络，覆盖求职全流程：
+BOSS直聘 AI 助手是一个面向求职场景的桌面应用：在系统内嵌 BOSS直聘浏览器环境，右侧常驻 AI 面板，由 **6 个专业智能体（Agent）** 组成协作网络，覆盖求职全流程：
 
 **沟通** → 打招呼语、消息回复、求职信撰写
 **准备** → 面试模拟、岗位匹配、公司尽调
@@ -245,4 +247,4 @@ boss-ai-desktop/
 
 [MIT](./LICENSE)
 
-Copyright © 2026 BOSS AI Contributors
+Copyright © 2026 BOSS直聘 AI Contributors

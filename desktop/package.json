@@ -1,8 +1,8 @@
 {
   "name": "boss-ai-desktop",
   "version": "1.0.0",
-  "description": "BOSS AI 助手桌面端 - 基于 Electron 的多智能体求职辅助工具（招呼语/回复/面试/岗位匹配/公司尽调）",
-  "author": "BOSS AI Contributors",
+  "description": "BOSS直聘 AI 助手桌面端 - 基于 Electron 的多智能体求职辅助工具（招呼语/回复/面试/岗位匹配/公司尽调/小红书舆情）",
+  "author": "BOSS直聘 AI Contributors",
   "license": "MIT",
   "main": "main.js",
   "scripts": {

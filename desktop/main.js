@@ -102,7 +102,7 @@ function createWindow() {
     height: 1000,
     minWidth: 1180,
     minHeight: 720,
-    title: "BOSS AI 助手",
+    title: "BOSS直聘 AI 助手",
     autoHideMenuBar: true,
     backgroundColor: "#f6f7f9"
   });
