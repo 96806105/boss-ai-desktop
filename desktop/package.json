@@ -1,0 +1,38 @@
+{
+  "name": "boss-ai-desktop",
+  "version": "1.0.0",
+  "description": "BOSS AI 助手桌面端 - 基于 Electron 的多智能体求职辅助工具（招呼语/回复/面试/岗位匹配/公司尽调）",
+  "author": "BOSS AI Contributors",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.bossai.desktop",
+    "productName": "BOSSAI助手",
+    "files": [
+      "main.js",
+      "preload-boss.js",
+      "preload-panel.js",
+      "panel.html",
+      "panel.css",
+      "panel.js",
+      "content/content.js",
+      "src/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "BOSSAI助手.exe"
+    }
+  },
+  "devDependencies": {}
+}

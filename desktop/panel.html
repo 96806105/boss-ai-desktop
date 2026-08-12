@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BOSS AI 助手</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body data-theme="auto">
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.3 6.8L21 11l-6.7 2.2L12 20l-2.3-6.8L3 11l6.7-2.2z"/><path d="M19 3l.6 1.8L21.5 5l-1.9.7L19 7.5l-.6-1.8L16.5 5l1.9-.7z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></symbol>
+    <symbol id="i-forward" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3l6 6M10 4l3.5 3.5L8 13l-3 1 2.5 2.5L4 20l3.5-3.5L10 19l1-3 5.5-5.5L20 14"/></symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></symbol>
+    <symbol id="i-briefcase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M8 10h.01M16 10h.01M12 10h.01M8 14h.01M16 14h.01M12 14h.01"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+    <symbol id="i-zoom-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M8 11h6M11 8v6"/></symbol>
+    <symbol id="i-zoom-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35M8 11h6"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"><svg class="ic"><use href="#i-spark"/></svg></span>
+      <span class="brand-name">BOSS AI</span>
+    </div>
+    <div class="top-ops">
+      <button class="icon-btn" id="btnBack" title="后退"><svg class="ic"><use href="#i-back"/></svg></button>
+      <button class="icon-btn" id="btnForward" title="前进"><svg class="ic"><use href="#i-forward"/></svg></button>
+      <button class="icon-btn" id="btnReload" title="刷新 BOSS 页"><svg class="ic"><use href="#i-refresh"/></svg></button>
+      <button class="icon-btn" id="btnPin" title="窗口置顶"><svg class="ic"><use href="#i-pin"/></svg></button>
+      <button class="icon-btn" id="btnCollapse" title="收起面板"><svg class="ic"><use href="#i-collapse"/></svg></button>
+    </div>
+  </header>
+
+  <div class="strip" id="strip">
+    <button class="icon-btn" id="btnExpand" title="展开面板"><svg class="ic"><use href="#i-expand"/></svg></button>
+    <button class="icon-btn" id="btnPinS" title="窗口置顶"><svg class="ic"><use href="#i-pin"/></svg></button>
+    <button class="icon-btn" id="btnReloadS" title="刷新 BOSS 页"><svg class="ic"><use href="#i-refresh"/></svg></button>
+  </div>
+
+  <div class="statusbar">
+    <div class="status-dots" id="statusbar"></div>
+    <div class="zoom-ctl">
+      <button class="icon-btn sm" id="zoomOut" title="缩小"><svg class="ic"><use href="#i-zoom-out"/></svg></button>
+      <button class="zoom-label" id="zoomLabel" title="恢复自动缩放">自动</button>
+      <button class="icon-btn sm" id="zoomIn" title="放大"><svg class="ic"><use href="#i-zoom-in"/></svg></button>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="assist"><svg class="ic"><use href="#i-chat"/></svg>助手</button>
+    <button class="tab" data-tab="interview"><svg class="ic"><use href="#i-briefcase"/></svg>面试</button>
+    <button class="tab" data-tab="match"><svg class="ic"><use href="#i-target"/></svg>匹配</button>
+    <button class="tab" data-tab="company"><svg class="ic"><use href="#i-building"/></svg>公司</button>
+    <button class="tab" data-tab="filter"><svg class="ic"><use href="#i-filter"/></svg>筛选</button>
+    <button class="tab" data-tab="settings"><svg class="ic"><use href="#i-gear"/></svg>设置</button>
+  </nav>
+
+  <main class="body">
+    <!-- 助手 -->
+    <section id="tab-assist" class="page active">
+      <div class="agent-strip" id="agentStrip">
+        <span class="agent-idle-dot" id="agentDot"></span>
+        <span class="agent-text" id="agentText">多智能体系统就绪</span>
+      </div>
+      <div class="action-grid">
+        <button class="action-card" id="btnGreeting">
+          <svg class="ic"><use href="#i-spark"/></svg>
+          <span class="ac-title">招呼语</span>
+          <span class="ac-sub">两版真实文案</span>
+        </button>
+        <button class="action-card" id="btnReply">
+          <svg class="ic"><use href="#i-chat"/></svg>
+          <span class="ac-title">回复</span>
+          <span class="ac-sub">贴合对话语境</span>
+        </button>
+        <button class="action-card" id="btnLetter">
+          <svg class="ic"><use href="#i-file"/></svg>
+          <span class="ac-title">求职信</span>
+          <span class="ac-sub">正式自荐信</span>
+        </button>
+      </div>
+      <div id="pendingBox" class="pending-box" style="display:none;"></div>
+      <div class="status" id="status"></div>
+      <div id="content"></div>
+      <div class="section-title">智能体活动 <span class="section-extra"><button class="link-btn" id="btnClearActivity">清空</button></span></div>
+      <div id="activity"></div>
+    </section>
+
+    <!-- 面试 -->
+    <section id="tab-interview" class="page">
+      <div class="card">
+        <div class="card-head">
+          <h2>面试准备</h2>
+          <span class="badge badge-agent">Agent · 面试教练</span>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>公司</label>
+            <input type="text" id="ivCompany" placeholder="公司名称">
+          </div>
+          <div class="field">
+            <label>岗位</label>
+            <input type="text" id="ivTitle" placeholder="岗位名称">
+          </div>
+        </div>
+        <div class="field">
+          <label>职位描述（选填）</label>
+          <textarea id="ivJd" rows="3" placeholder="粘贴职位描述，或从会话获取"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn secondary" id="btnFromChat"><svg class="ic"><use href="#i-send"/></svg>从会话获取</button>
+          <button class="btn primary flex" id="btnPrep">生成准备卡</button>
+        </div>
+        <div class="status" id="prepStatus"></div>
+        <div id="prepResult"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>面试记录</h2>
+          <button class="btn ghost sm" id="btnAddIv">＋ 添加</button>
+        </div>
+        <div id="ivForm" class="iv-form" style="display:none;">
+          <div class="field-row">
+            <div class="field"><label>公司</label><input type="text" id="ivRecCompany"></div>
+            <div class="field"><label>岗位</label><input type="text" id="ivRecTitle"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>时间</label><input type="text" id="ivRecDate" placeholder="8/14 14:00"></div>
+            <div class="field"><label>状态</label>
+              <select id="ivRecStatus">
+                <option value="pending">待确认</option>
+                <option value="confirmed">已约面</option>
+                <option value="done">已完成</option>
+                <option value="cancelled">已取消</option>
+              </select>
+            </div>
+          </div>
+          <div class="field"><label>备注</label><input type="text" id="ivRecNote" placeholder="面试官/地点/注意事项"></div>
+          <button class="btn primary block" id="btnSaveIv">保存记录</button>
+        </div>
+        <div id="ivList" style="margin-top:10px;"></div>
+      </div>
+    </section>
+
+    <!-- 匹配 -->
+    <section id="tab-match" class="page">
+      <div class="card">
+        <div class="card-head">
+          <h2>岗位匹配</h2>
+          <span class="badge badge-agent">Agent · 岗位匹配师</span>
+        </div>
+        <p class="desc">从简历提取技能关键词，自动在 BOSS 职位库（后台逐词检索，不打扰当前页面）收集候选岗位，再由匹配师逐个深度思考打分：核心要求是什么 → 简历能否实质支撑 → 差距能否补上。</p>
+        <div class="btn-row">
+          <button class="btn primary flex" id="btnMatchRun"><svg class="ic"><use href="#i-refresh"/></svg>立即匹配当前列表</button>
+        </div>
+        <div class="field-row" style="margin-top:10px;">
+          <div class="field"><label>定时刷新</label>
+            <select id="matchInterval">
+              <option value="0">关闭</option>
+              <option value="15">每 15 分钟</option>
+              <option value="30" selected>每 30 分钟</option>
+              <option value="60">每 1 小时</option>
+            </select>
+          </div>
+          <div class="field"><label>提醒阈值（分数≥）</label>
+            <select id="matchThreshold">
+              <option value="60">60</option>
+              <option value="70" selected>70</option>
+              <option value="80">80</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label>补充要求（覆盖简历，无需重传简历）</label>
+          <textarea id="matchExtra" rows="3" placeholder="如：意向城市 苏州；期望薪资 15-20K；不接受销售岗；可接受单休/出差。匹配师会以这些条件为准重新评估"></textarea>
+        </div>
+        <div class="status" id="matchStatus"></div>
+        <div id="matchNewBanner" class="match-new-banner" style="display:none;"></div>
+        <div class="match-meta" id="matchMeta" style="display:none;"></div>
+        <div id="matchResult"></div>
+      </div>
+    </section>
+
+    <!-- 公司 -->
+    <section id="tab-company" class="page">
+      <div class="card">
+        <div class="card-head">
+          <h2>公司尽调</h2>
+          <span class="badge badge-agent">Agent · 尽调分析师</span>
+        </div>
+        <p class="desc">聚合公开信息：注册资本与实缴、司法案件、股权穿透、舆情与平台口碑，输出防骗尽调报告。</p>
+        <div class="field">
+          <input type="text" id="coName" placeholder="输入公司名称，如：某某科技有限公司">
+        </div>
+        <div class="btn-row">
+          <button class="btn primary flex" id="btnCompany">开始分析</button>
+          <button class="btn secondary" id="btnCoFromJd">从当前职位获取</button>
+        </div>
+        <div class="progress-wrap" id="coProgress" style="display:none;">
+          <div class="progress-track"><div class="progress-bar" id="coProgressBar"></div></div>
+          <div class="progress-label" id="coProgressLabel"></div>
+        </div>
+        <div class="status" id="coStatus"></div>
+        <div id="coResult"></div>
+        <div class="hint">信息来自 Bing 公开搜索聚合，可能存在滞后或遗漏，重要决策请通过官方渠道核实。</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>小红书舆情采集</h2><span class="badge">站内检索</span></div>
+        <p class="desc">搜索引擎不收录小红书站内内容。点击按钮会在左侧打开小红书搜索页（用完点「返回 BOSS」即可回来，页面状态不丢），自行搜索后把结果粘贴回来：</p>
+        <ol class="steps">
+          <li>点击「打开小红书搜索」，左侧打开该公司搜索页</li>
+          <li>首次使用请扫码登录，然后搜索「公司名 + 口碑/评价/避雷」</li>
+          <li>把搜索到的回答、笔记标题复制，粘贴到下方文本框，点「加入尽调证据」</li>
+          <li>点「返回 BOSS」回到原来的页面，「开始分析」会优先引用这些站内一手内容</li>
+        </ol>
+        <div class="btn-row">
+          <button class="btn primary flex" id="btnXhsOpen">打开小红书搜索</button>
+          <button class="btn ghost" id="btnXhsBack">返回 BOSS</button>
+        </div>
+        <div class="field" style="margin-top:8px;">
+          <textarea id="xhsPaste" rows="5" placeholder="在小红书搜索公司后，把回答、笔记标题等内容复制粘贴到这里，点击下方「加入尽调证据」"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn secondary flex" id="btnXhsAdd">加入尽调证据</button>
+          <button class="btn ghost" id="btnXhsClear">清空 (0)</button>
+        </div>
+        <div class="status" id="xhsStatus"></div>
+        <div class="hint2" id="xhsHint" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- 筛选 -->
+    <section id="tab-filter" class="page">
+      <div class="card">
+        <div class="card-head"><h2>职位筛选</h2><span class="badge">本地引擎</span></div>
+        <div class="field-row">
+          <div class="field"><label>最低薪资 K</label><input type="text" id="fMinK" placeholder="如 15，0=不限"></div>
+          <div class="field"><label>最高薪资 K</label><input type="text" id="fMaxK" placeholder="如 30，0=不限"></div>
+        </div>
+        <div class="field"><label>包含关键词（逗号分隔）</label><input type="text" id="fInc" placeholder="如 运营,数据"></div>
+        <div class="field"><label>排除关键词（外包/劳务/销售…）</label><input type="text" id="fExc" placeholder="如 外包,劳务,派遣,销售"></div>
+        <div class="field"><label>排除公司（黑名单，每行一个）</label><textarea id="fExCo" rows="3" placeholder="每行一个公司名，精确子串匹配"></textarea></div>
+        <div class="btn-row">
+          <button class="btn primary flex" id="btnApplyFilter">应用筛选</button>
+          <button class="btn ghost" id="btnClearFilter">还原</button>
+        </div>
+        <div class="status" id="filterStatus"></div>
+        <div class="hint">对当前已加载职位生效，滚动加载的新职位自动应用；全程本地处理，不影响账号。</div>
+      </div>
+    </section>
+
+    <!-- 设置 -->
+    <section id="tab-settings" class="page">
+      <div class="card">
+        <div class="card-head"><h2>模型</h2></div>
+        <div class="field"><label>DeepSeek API Key</label><input type="password" id="apiKey" placeholder="sk-xxxxxxxx" autocomplete="off"></div>
+        <div class="field"><label>模型</label>
+          <select id="model">
+            <option value="deepseek-chat">deepseek-chat · 快速均衡</option>
+            <option value="deepseek-reasoner">deepseek-reasoner · 深度推理</option>
+          </select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>写作风格</h2></div>
+        <div class="field"><label>语气</label>
+          <select id="style">
+            <option value="prof">专业稳重</option>
+            <option value="warm">热情亲和</option>
+            <option value="brief">简洁高效</option>
+          </select>
+        </div>
+        <div class="field"><label>自定义要求（选填）</label><textarea id="customPrompt" rows="2" placeholder="如：不要用感叹号；突出项目管理经验"></textarea></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>简历</h2></div>
+        <div class="field"><label>简历内容（智能体生成均会引用）</label><textarea id="resumeText" rows="8" placeholder="粘贴你的简历文字"></textarea></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>提醒与界面</h2></div>
+        <div class="switch-row">
+          <span>对方新消息提醒</span>
+          <label class="switch"><input type="checkbox" id="autoReply"><span class="slider"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>深色主题</span>
+          <label class="switch"><input type="checkbox" id="darkTheme"><span class="slider"></span></label>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>提醒冷却（秒）</label><input type="text" id="cooldown" value="10"></div>
+          <div class="field"><label>参考消息条数</label><input type="text" id="maxContext" value="8"></div>
+        </div>
+      </div>
+      <button class="btn primary block" id="btnSave">保存设置</button>
+      <div class="status" id="saveStatus"></div>
+    </section>
+  </main>
+
+  <footer class="bottombar">
+    <button class="btn primary block" id="btnGoChat"><svg class="ic"><use href="#i-chat"/></svg>打开 BOSS 聊天页</button>
+  </footer>
+  <script src="panel.js"></script>
+</body>
+</html>
