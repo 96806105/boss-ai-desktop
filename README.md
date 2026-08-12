@@ -1,6 +1,6 @@
 # BOSS直聘 AI 助手（桌面端）
 
-> 基于 Electron 的企业级多智能体求职辅助系统 —— 从打招呼到入职的全流程 AI 陪跑
+> 基于 Electron 的多智能体求职辅助系统 —— 从打招呼到入职的全流程 AI 陪跑
 
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-0078d6)
 ![Electron](https://img.shields.io/badge/Electron-43.x-47848f)
