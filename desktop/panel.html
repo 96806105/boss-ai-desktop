@@ -74,6 +74,24 @@
       <div class="agent-strip" id="agentStrip">
         <span class="agent-idle-dot" id="agentDot"></span>
         <span class="agent-text" id="agentText">多智能体系统就绪</span>
+        <button class="btn ghost sm" id="btnStopAgent" style="display:none;">停止</button>
+      </div>
+      <div class="card chat-card">
+        <div class="card-head">
+          <h2>对话助手</h2>
+          <span class="badge badge-agent">Agent · 求职顾问</span>
+        </div>
+        <div class="mode-seg">
+          <button class="mode-btn on" id="modeChat" data-mode="chat">自由问答</button>
+          <button class="mode-btn" id="modeForm" data-mode="form">问卷模式</button>
+        </div>
+        <div class="chat-msgs" id="chatMsgs"></div>
+        <div class="chat-hint" id="chatHint"></div>
+        <div class="chat-input-row">
+          <textarea id="chatInput" rows="2" placeholder="任何求职问题都可以问，Enter 发送，Shift+Enter 换行"></textarea>
+          <button class="btn primary chat-send" id="chatSend" title="发送"><svg class="ic"><use href="#i-send"/></svg></button>
+        </div>
+        <div class="chat-ops"><button class="link-btn" id="chatClear">清空对话</button></div>
       </div>
       <div class="action-grid">
         <button class="action-card" id="btnGreeting">
@@ -91,8 +109,21 @@
           <span class="ac-title">求职信</span>
           <span class="ac-sub">正式自荐信</span>
         </button>
+        <button class="action-card" id="btnCleanUnread">
+          <svg class="ic"><use href="#i-trash"/></svg>
+          <span class="ac-title">清理会话</span>
+          <span class="ac-sub">已读不回>1天</span>
+        </button>
       </div>
       <div id="pendingBox" class="pending-box" style="display:none;"></div>
+      <div class="card">
+        <div class="card-head">
+          <h2>简历图片库</h2>
+          <button class="btn ghost sm" id="btnPickImage">＋ 上传</button>
+        </div>
+        <p class="desc">上传简历图片（可多选），聊天时点「发给对方」自动填入 BOSS 聊天框，不用再从电脑里找。</p>
+        <div id="imgList"></div>
+      </div>
       <div class="status" id="status"></div>
       <div id="content"></div>
       <div class="section-title">智能体活动 <span class="section-extra"><button class="link-btn" id="btnClearActivity">清空</button></span></div>
@@ -153,6 +184,23 @@
         </div>
         <div id="ivList" style="margin-top:10px;"></div>
       </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>面试问题库</h2>
+          <button class="btn ghost sm" id="btnAddIvq">＋ 添加</button>
+        </div>
+        <p class="desc">记录以往面试中被问到的问题，面试教练生成准备卡时会优先覆盖。</p>
+        <div id="ivqForm" class="iv-form" style="display:none;">
+          <div class="field"><label>问题内容</label><textarea id="ivqQuestion" rows="2" placeholder="例：为什么从上一家公司离职？"></textarea></div>
+          <div class="field-row">
+            <div class="field"><label>公司（选填）</label><input type="text" id="ivqCompany" placeholder="在哪家公司被问到"></div>
+            <div class="field"><label>岗位（选填）</label><input type="text" id="ivqTitle" placeholder="面试的岗位"></div>
+          </div>
+          <div class="field"><label>你的回答 / 参考答案（选填）</label><textarea id="ivqAnswer" rows="3" placeholder="当时的回答，或事后总结的参考答案"></textarea></div>
+          <button class="btn primary block" id="btnSaveIvq">保存问题</button>
+        </div>
+        <div id="ivqList" style="margin-top:10px;"></div>
+      </div>
     </section>
 
     <!-- 匹配 -->
@@ -165,6 +213,7 @@
         <p class="desc">从简历提取技能关键词，自动在 BOSS 职位库（后台逐词检索，不打扰当前页面）收集候选岗位，再由匹配师逐个深度思考打分：核心要求是什么 → 简历能否实质支撑 → 差距能否补上。</p>
         <div class="btn-row">
           <button class="btn primary flex" id="btnMatchRun"><svg class="ic"><use href="#i-refresh"/></svg>立即匹配当前列表</button>
+          <button class="btn ghost" id="btnMatchStop" style="display:none;">停止</button>
         </div>
         <div class="field-row" style="margin-top:10px;">
           <div class="field"><label>定时刷新</label>
@@ -207,7 +256,8 @@
         </div>
         <div class="btn-row">
           <button class="btn primary flex" id="btnCompany">开始分析</button>
-          <button class="btn secondary" id="btnCoFromJd">从当前职位获取</button>
+          <button class="btn secondary" id="btnRisk">避雷速查</button>
+          <button class="btn ghost" id="btnCoFromJd">从当前职位获取</button>
         </div>
         <div class="progress-wrap" id="coProgress" style="display:none;">
           <div class="progress-track"><div class="progress-bar" id="coProgressBar"></div></div>
@@ -216,6 +266,23 @@
         <div class="status" id="coStatus"></div>
         <div id="coResult"></div>
         <div class="hint">信息来自 Bing 公开搜索聚合，可能存在滞后或遗漏，重要决策请通过官方渠道核实。</div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>批量公司解析</h2>
+          <span class="badge badge-agent">Agent · 公司名解析器</span>
+        </div>
+        <p class="desc">从网上复制一段提到多家公司的文字（文章 / 帖子 / 评论区），一次解析出全部公司名，勾选后批量尽调，每家可直达 BOSS 搜岗位。</p>
+        <div class="field">
+          <textarea id="batchText" rows="4" placeholder="粘贴包含多家公司名的段落，如：最近在看 XX科技、XX集团、XX有限公司这几家的机会……"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary flex" id="btnParse"><svg class="ic"><use href="#i-target"/></svg>解析公司名</button>
+          <button class="btn secondary flex" id="btnBatchRun" style="display:none;"><svg class="ic"><use href="#i-building"/></svg>批量尽调</button>
+        </div>
+        <div class="status" id="batchStatus"></div>
+        <div id="batchCandidates"></div>
+        <div id="batchResult"></div>
       </div>
       <div class="card">
         <div class="card-head"><h2>小红书舆情采集</h2><span class="badge">站内检索</span></div>
@@ -273,6 +340,10 @@
             <option value="deepseek-reasoner">deepseek-reasoner · 深度推理</option>
           </select>
         </div>
+        <div class="btn-row">
+          <button class="btn secondary" id="btnTestApi">测试连接</button>
+          <span class="status" id="apiTestStatus" style="flex:1;"></span>
+        </div>
       </div>
       <div class="card">
         <div class="card-head"><h2>写作风格</h2></div>
@@ -287,13 +358,29 @@
       </div>
       <div class="card">
         <div class="card-head"><h2>简历</h2></div>
-        <div class="field"><label>简历内容（智能体生成均会引用）</label><textarea id="resumeText" rows="8" placeholder="粘贴你的简历文字"></textarea></div>
+        <div class="field-row">
+          <div class="field" style="flex:2;"><label>当前简历</label>
+            <select id="resumeList"></select>
+          </div>
+          <div class="field" style="flex:2;"><label>简历名称</label><input type="text" id="resumeName" placeholder="如：AI应用开发岗"></div>
+          <div class="field" style="flex:1;"><label>操作</label>
+            <div class="btn-row" style="gap:4px;">
+              <button class="btn secondary sm" id="btnResumeAdd" title="新建简历">+ 新建</button>
+              <button class="btn ghost sm" id="btnResumeDel" title="删除当前简历">删除</button>
+            </div>
+          </div>
+        </div>
+        <div class="field"><label>简历内容（仅当前选中的简历会用于生成）</label><textarea id="resumeText" rows="8" placeholder="粘贴你的简历文字"></textarea></div>
       </div>
       <div class="card">
         <div class="card-head"><h2>提醒与界面</h2></div>
         <div class="switch-row">
           <span>对方新消息提醒</span>
           <label class="switch"><input type="checkbox" id="autoReply"><span class="slider"></span></label>
+        </div>
+        <div class="switch-row">
+          <span>新消息提示音</span>
+          <label class="switch"><input type="checkbox" id="notifySound"><span class="slider"></span></label>
         </div>
         <div class="switch-row">
           <span>深色主题</span>
@@ -306,12 +393,18 @@
       </div>
       <button class="btn primary block" id="btnSave">保存设置</button>
       <div class="status" id="saveStatus"></div>
+      <div class="card">
+        <div class="card-head"><h2>诊断</h2></div>
+        <div class="field"><label>用量统计</label><div class="usage-stats" id="usageStats">-</div></div>
+        <div class="btn-row">
+          <button class="btn secondary" id="btnRefreshLog">刷新日志</button>
+          <button class="btn ghost" id="btnCopyLog">复制日志</button>
+        </div>
+        <div class="log-box" id="logBox" style="display:none;"></div>
+      </div>
     </section>
   </main>
 
-  <footer class="bottombar">
-    <button class="btn primary block" id="btnGoChat"><svg class="ic"><use href="#i-chat"/></svg>打开 BOSS 聊天页</button>
-  </footer>
   <script src="panel.js"></script>
 </body>
 </html>

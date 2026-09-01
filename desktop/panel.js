@@ -5,7 +5,9 @@ const AGENT_ICONS = {
   reply: "i-chat",
   interview: "i-briefcase",
   company: "i-building",
-  application: "i-file"
+  application: "i-file",
+  match: "i-target",
+  chat: "i-chat"
 };
 
 let settings = null;
@@ -15,6 +17,8 @@ let prepBusy = false;
 let coBusy = false;
 let zoomManual = false;
 let zoomVal = null;
+let resumes = [];
+let activeResumeId = null;
 
 // ============================================================
 // 主题
@@ -44,15 +48,93 @@ function toast(msg) {
 // ============================================================
 // 设置
 // ============================================================
+// ---------- 多简历 ----------
+function normalizeResumes(s) {
+  const list = Array.isArray(s.resumes) ? s.resumes.filter((r) => r && r.id) : [];
+  let active = s.activeResumeId && list.some((r) => r.id === s.activeResumeId) ? s.activeResumeId : (list[0] && list[0].id) || null;
+  if (!list.length) {
+    const legacy = String(s.resumeText || "").trim();
+    if (legacy) {
+      list.push({ id: "default", name: s.resumeFileName || "简历 1", text: s.resumeText, fileName: s.resumeFileName || "" });
+      active = "default";
+    }
+  }
+  return { list, active };
+}
+
+function currentResume() {
+  return resumes.find((r) => r.id === activeResumeId) || resumes[0] || null;
+}
+
+function syncResumeTextFromEditor() {
+  const c = currentResume();
+  if (c) {
+    c.text = $("#resumeText").value;
+    c.name = $("#resumeName").value.trim() || c.name;
+  }
+}
+
+function renderResumeList() {
+  const sel = $("#resumeList");
+  sel.innerHTML = "";
+  resumes.forEach((r, i) => {
+    const opt = document.createElement("option");
+    opt.value = r.id;
+    opt.textContent = r.name || "简历 " + (i + 1);
+    sel.appendChild(opt);
+  });
+  if (resumes.length) sel.value = activeResumeId;
+  $("#btnResumeDel").disabled = resumes.length <= 1;
+  const cur = currentResume();
+  $("#resumeName").value = cur ? (cur.name || "") : "";
+  $("#resumeText").value = cur ? (cur.text || "") : "";
+  refreshStatus();
+}
+
+function bindResumeEvents() {
+  $("#resumeText").addEventListener("input", () => {
+    const c = currentResume();
+    if (c) c.text = $("#resumeText").value;
+  });
+  $("#resumeName").addEventListener("input", () => {
+    const c = currentResume();
+    if (c) c.name = $("#resumeName").value.trim();
+  });
+  $("#resumeList").addEventListener("change", () => {
+    syncResumeTextFromEditor();
+    activeResumeId = $("#resumeList").value;
+    renderResumeList();
+  });
+  $("#btnResumeAdd").onclick = () => {
+    syncResumeTextFromEditor();
+    const n = { id: "r_" + Date.now().toString(36), name: "简历 " + (resumes.length + 1), text: "", fileName: "" };
+    resumes.push(n);
+    activeResumeId = n.id;
+    renderResumeList();
+    $("#resumeText").focus();
+  };
+  $("#btnResumeDel").onclick = () => {
+    if (resumes.length <= 1) return;
+    syncResumeTextFromEditor();
+    resumes = resumes.filter((r) => r.id !== activeResumeId);
+    activeResumeId = (resumes[0] && resumes[0].id) || null;
+    renderResumeList();
+  };
+}
+
 async function loadSettings() {
   const d = await api.getStore("bossAiSettings");
   settings = d.bossAiSettings || {};
+  const norm = normalizeResumes(settings);
+  resumes = norm.list;
+  activeResumeId = norm.active;
   $("#apiKey").value = settings.apiKey || "";
   $("#model").value = settings.model || "deepseek-chat";
   $("#style").value = settings.style || "prof";
   $("#customPrompt").value = settings.customPrompt || "";
-  $("#resumeText").value = settings.resumeText || "";
+  renderResumeList();
   $("#autoReply").checked = settings.autoReply !== false;
+  $("#notifySound").checked = settings.notifySound === true;
   $("#cooldown").value = settings.cooldown || 10;
   $("#maxContext").value = settings.maxContext || 8;
   applyTheme();
@@ -60,13 +142,19 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
+  syncResumeTextFromEditor();
+  const cur = currentResume();
   const obj = {
     apiKey: $("#apiKey").value.trim(),
     model: $("#model").value,
     style: $("#style").value,
     customPrompt: $("#customPrompt").value.trim(),
-    resumeText: $("#resumeText").value,
+    resumes,
+    activeResumeId,
+    resumeText: cur ? cur.text : "",
+    resumeFileName: cur ? cur.fileName : "",
     autoReply: $("#autoReply").checked,
+    notifySound: !!$("#notifySound").checked,
     darkTheme: !!$("#darkTheme").checked,
     cooldown: parseInt($("#cooldown").value) || 10,
     maxContext: parseInt($("#maxContext").value) || 8
@@ -84,7 +172,8 @@ async function refreshStatus() {
   const st = await api.bossAction({ type: "panel-status" });
   const info = st.ok ? st.status : {};
   const parts = [];
-  parts.push(s.resumeText ? '<span class="st ok">简历</span>' : '<span class="st no">简历</span>');
+  const cur = currentResume();
+  parts.push(cur && String(cur.text || "").trim() ? '<span class="st ok">简历</span>' : '<span class="st no">简历</span>');
   parts.push(s.apiKey ? '<span class="st ok">API</span>' : '<span class="st no">API</span>');
   parts.push(info.onDetail ? '<span class="st ok">JD</span>' : '<span class="st">JD</span>');
   parts.push(s.autoReply !== false ? '<span class="st ok">提醒</span>' : '<span class="st no">提醒</span>');
@@ -121,7 +210,7 @@ function setAgentState(state, text) {
 async function renderActivity() {
   const r = await api.agentLog();
   const box = $("#activity");
-  const entries = (r.ok ? r.log : []).filter((e) => e.type === "done" || e.type === "error");
+  const entries = (r.ok ? r.log : []).filter((e) => e.type === "done" || e.type === "error" || e.type === "cancelled");
   if (!entries.length) {
     box.innerHTML = '<div class="act-empty">暂无智能体任务记录</div>';
     return;
@@ -131,7 +220,9 @@ async function renderActivity() {
     const item = document.createElement("div");
     item.className = "act-item";
     const icon = AGENT_ICONS[e.agent] || "i-spark";
-    const sub = e.type === "error" ? "执行失败：" + (e.error || "") : "耗时 " + (e.ms ? (e.ms / 1000).toFixed(1) + " 秒" : "-") + (e.chars ? " · " + e.chars + " 字符" : "");
+    const sub = e.type === "error" ? "执行失败：" + (e.error || "")
+      : e.type === "cancelled" ? "已停止"
+      : "耗时 " + (e.ms ? (e.ms / 1000).toFixed(1) + " 秒" : "-") + (e.chars ? " · " + e.chars + " 字符" : "");
     item.innerHTML = '<span class="act-icon ' + e.type + '"><svg class="ic"><use href="#' + icon + '"/></svg></span>' +
       '<span class="act-main"><span class="act-name">' + (e.agentName || e.agent) + '</span><div class="act-sub">' + esc(sub) + "</div></span>" +
       '<span class="act-time">' + fmtTime(e.ts) + "</span>";
@@ -150,13 +241,45 @@ function esc(s) {
 }
 
 // ============================================================
-// 生成（招呼语 / 回复）
+// 生成（招呼语 / 回复）—— 直接走多智能体编排（支持停止）
 // ============================================================
+function splitVersions(text) {
+  const t = (text || "").trim();
+  if (!t) return [];
+  const marker = /^\s*(?:【\s*(?:版本\s*)?[0-9一二三四五六七八九十]+\s*】|版本\s*[0-9一二三四五六七八九十]+\s*[：:、.．]?|第\s*[0-9一二三四五六七八九十]+\s*(?:个版本|版)\s*[：:、.．]?|[0-9一二三四五六七八九十]+\s*[、.．:：])\s*/;
+  const versions = [];
+  let cur = "";
+  for (const line of t.split(/\r?\n/)) {
+    const m = line.match(marker);
+    if (m) {
+      if (cur) versions.push(cur.trim());
+      cur = line.slice(m[0].length).trim();
+    } else {
+      cur += (cur ? "\n" : "") + line;
+    }
+  }
+  if (cur) versions.push(cur.trim());
+  const list = versions.filter(Boolean);
+  if (list.length >= 2) return list;
+  const lines = t.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  return lines.length >= 2 ? lines : [t];
+}
+
+async function saveHistory(entry) {
+  const d = await api.getStore("bossAiHistory");
+  const list = d.bossAiHistory || [];
+  entry.ts = Date.now();
+  list.unshift(entry);
+  if (list.length > 50) list.length = 50;
+  await api.setStore({ bossAiHistory: list });
+}
+
 async function runAction(kind) {
   if (busy) return;
   await loadSettings();
   if (!settings.apiKey) { setStatus("未配置 API Key，请在设置页填写", true); showTab("settings"); return; }
-  if (kind === "greeting" && !settings.resumeText) {
+  const curResume = currentResume();
+  if (kind === "greeting" && !(curResume && String(curResume.text || "").trim())) {
     setStatus("未配置简历，生成效果会变差（可在设置页粘贴简历）", true);
   }
   $("#content").innerHTML = "";
@@ -164,17 +287,46 @@ async function runAction(kind) {
   $("#btnGreeting").disabled = true;
   $("#btnReply").disabled = true;
   setStatus("正在生成…（模型思考约 10~40 秒）");
-  const res = await api.bossAction({ type: "generate-now", kind });
-  busy = false;
-  $("#btnGreeting").disabled = false;
-  $("#btnReply").disabled = false;
-  if (!res.ok) { setStatus(res.error || "生成失败", true); return; }
-  setStatus("");
-  if (kind === "greeting") {
-    renderGreeting(res.res);
-    renderPending();
-  } else {
-    renderReply(res.res);
+  setAgentState("busy", (kind === "greeting" ? "招呼语专家" : "回复助手") + " · 生成中…");
+  try {
+    if (kind === "greeting") {
+      const jdR = await api.bossAction({ type: "getJd" });
+      if (!jdR.ok || !jdR.jd || !jdR.jd.hasJd) throw new Error("未识别到职位信息，请先在左侧打开职位详情页");
+      const res = await api.agentInvoke("greeting", { jd: jdR.jd });
+      if (!res.ok) throw new Error(res.error || "生成失败");
+      const versions = splitVersions(res.text);
+      if (versions.length) {
+        await saveHistory({ kind: "greeting", title: jdR.jd.title, company: jdR.jd.company, result: res.text });
+        await api.setStore({
+          bossAiPendingGreeting: {
+            versions,
+            job: { title: jdR.jd.title, company: jdR.jd.company, salary: jdR.jd.salary },
+            ts: Date.now()
+          }
+        });
+      }
+      renderGreeting({ jd: jdR.jd, versions });
+      renderPending();
+    } else {
+      const ctxR = await api.bossAction({ type: "get-chat-history" });
+      if (!ctxR.ok || !ctxR.history) throw new Error("当前不在聊天页，请先在左侧打开聊天窗口");
+      const last = (ctxR.history || []).filter((h) => !h.self).pop();
+      if (!last) throw new Error("未检测到对方的消息");
+      const res = await api.agentInvoke("reply", { jd: ctxR.jd || {}, history: ctxR.history || [] });
+      if (!res.ok) throw new Error(res.error || "生成失败");
+      await saveHistory({ kind: "reply", title: (ctxR.jd || {}).title, company: (ctxR.jd || {}).company, result: res.text });
+      renderReply({ jd: ctxR.jd || {}, reply: res.text, lastMsg: last.text });
+    }
+    setStatus("");
+  } catch (err) {
+    const msg = String((err && err.message) || err);
+    if (/已停止|已取消/.test(msg)) setStatus("已停止生成");
+    else setStatus(msg, true);
+  } finally {
+    busy = false;
+    $("#btnGreeting").disabled = false;
+    $("#btnReply").disabled = false;
+    setAgentState("", "多智能体系统就绪");
   }
 }
 
@@ -264,6 +416,152 @@ async function renderPending() {
 }
 
 // ============================================================
+// 对话助手（自由问答 + 问卷模式）
+// ============================================================
+const CHAT_KEY = "bossAiChatHistory";
+const CHAT_CAP = 40;
+let chatHistory = [];
+let chatMode = "chat"; // chat | form
+let chatBusy = false;
+
+async function persistChat() {
+  if (chatHistory.length > CHAT_CAP) chatHistory = chatHistory.slice(-CHAT_CAP);
+  await api.setStore({ [CHAT_KEY]: chatHistory });
+}
+
+async function loadChat() {
+  try {
+    const d = await api.getStore(CHAT_KEY);
+    chatHistory = Array.isArray(d && d[CHAT_KEY]) ? d[CHAT_KEY] : [];
+  } catch (e) {
+    chatHistory = [];
+  }
+  renderChat();
+}
+
+function renderChat() {
+  const box = $("#chatMsgs");
+  box.innerHTML = "";
+  if (!chatHistory.length) {
+    box.innerHTML = '<div class="chat-empty">开始对话吧<br>任何求职问题都可以问：薪资谈判、HR 应对、岗位理解、自我介绍…</div>';
+    return;
+  }
+  chatHistory.forEach((m) => {
+    box.appendChild(chatBubble(m.role === "assistant", String(m.content || "")));
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+function chatBubble(isBot, content) {
+  const item = document.createElement("div");
+  item.className = "msg " + (isBot ? "bot" : "user");
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  if (isBot) {
+    bubble.innerHTML = renderMd(content);
+    const ops = document.createElement("div");
+    ops.className = "bubble-ops";
+    const copy = mkBtn("复制", async () => {
+      try {
+        await navigator.clipboard.writeText(content);
+        copy.textContent = "已复制";
+        setTimeout(() => (copy.textContent = "复制"), 1200);
+      } catch (e) {}
+    });
+    ops.appendChild(copy);
+    bubble.appendChild(ops);
+  } else {
+    bubble.textContent = content;
+  }
+  item.appendChild(bubble);
+  return item;
+}
+
+function renderChatMode() {
+  document.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("on", b.dataset.mode === chatMode));
+  const hint = $("#chatHint");
+  if (chatMode === "form") {
+    bindChatFromChat('<span class="mode-tag">问卷模式</span>把 HR 发的问卷/问题粘贴到输入框，助手会结合简历逐题给出建议答案。');
+  } else {
+    hint.innerHTML = "问任何求职问题：薪资谈判、HR 应对、岗位理解、自我介绍… 回答会参考你的简历。";
+  }
+}
+
+function bindChatFromChat(baseHtml) {
+  const hint = $("#chatHint");
+  hint.innerHTML = baseHtml + '<button class="link-btn" id="chatFromChat">从会话获取</button>';
+  $("#chatFromChat").onclick = async () => {
+    try {
+      const r = await api.bossAction({ type: "get-chat-history" });
+      if (!r.ok || !r.history || !r.history.length) {
+        bindChatFromChat('<span class="mode-tag">问卷模式</span>当前不在聊天页或没有对方消息，请手动粘贴问卷。');
+        return;
+      }
+      const other = r.history.filter((h) => !h.self).map((h) => h.text || "").join("\n").slice(0, 4000);
+      const el = $("#chatInput");
+      el.value = el.value.trim() ? el.value.trim() + "\n\n" + other : other;
+      el.focus();
+      bindChatFromChat('<span class="mode-tag">问卷模式</span>已从会话粘贴对方消息，检查后发送即可。');
+    } catch (e) {}
+  };
+}
+
+async function sendChat() {
+  const input = $("#chatInput").value.trim();
+  if (!input || chatBusy) return;
+  chatHistory.push({ role: "user", content: input });
+  $("#chatInput").value = "";
+  await persistChat();
+  renderChat();
+  chatBusy = true;
+  $("#chatSend").disabled = true;
+  setAgentState("busy", "对话助手 · 思考中…");
+  const typing = document.createElement("div");
+  typing.className = "msg bot";
+  typing.innerHTML = '<div class="bubble typing">正在思考…</div>';
+  const box = $("#chatMsgs");
+  box.appendChild(typing);
+  box.scrollTop = box.scrollHeight;
+  let jd = null;
+  try {
+    const jr = await api.bossAction({ type: "get-chat-history" });
+    if (jr && jr.ok && jr.jd && (jr.jd.title || jr.jd.desc)) jd = jr.jd;
+  } catch (e) {}
+  try {
+    const r = await api.agentInvoke("chat", { messages: chatHistory, mode: chatMode, jd });
+    typing.remove();
+    if (!r.ok) {
+      const msg = String(r.error || "生成失败");
+      chatHistory.pop();
+      await persistChat();
+      if (/已停止|已取消/.test(msg)) {
+        setAgentState("", "任务已停止");
+        return;
+      }
+      setAgentState("err", "对话助手执行失败");
+      box.appendChild(chatBubble(true, msg));
+      box.scrollTop = box.scrollHeight;
+      return;
+    }
+    chatHistory.push({ role: "assistant", content: r.text });
+    await persistChat();
+    setAgentState("", "多智能体系统就绪");
+    renderChat();
+    if (jd && jd.title) setStatus("已结合岗位「" + jd.title + "」作答");
+  } catch (e) {
+    typing.remove();
+    chatHistory.pop();
+    await persistChat();
+    box.appendChild(chatBubble(true, String((e && e.message) || e)));
+    box.scrollTop = box.scrollHeight;
+    setAgentState("err", "对话助手执行失败");
+  } finally {
+    chatBusy = false;
+    $("#chatSend").disabled = false;
+  }
+}
+
+// ============================================================
 // 求职信 Agent
 // ============================================================
 function showLetterForm() {
@@ -295,11 +593,18 @@ function showLetterForm() {
     const r = await api.agentInvoke("application", {
       company, title,
       jdDesc: $("#ltJd").value.trim(),
-      resumeText: settings.resumeText || ""
+      resumeText: (currentResume() || {}).text || ""
     });
     busy = false;
     $("#ltGenerate").disabled = false;
-    if (!r.ok) { $("#ltStatus").textContent = r.error || "生成失败"; $("#ltStatus").className = "status err"; setAgentState("err", "求职信生成失败"); return; }
+    if (!r.ok) {
+      const msg = String(r.error || "生成失败");
+      const stopped = /已停止|已取消/.test(msg);
+      $("#ltStatus").textContent = stopped ? "已停止" : msg;
+      $("#ltStatus").className = "status" + (stopped ? "" : " err");
+      setAgentState("", stopped ? "任务已停止" : "多智能体系统就绪");
+      return;
+    }
     $("#ltStatus").textContent = "";
     setAgentState("", "多智能体系统就绪");
     const res = document.createElement("div");
@@ -343,11 +648,17 @@ async function doPrep() {
   const r = await api.agentInvoke("interview", {
     company, title,
     jdDesc: $("#ivJd").value.trim(),
-    resumeText: settings.resumeText || ""
+    resumeText: (currentResume() || {}).text || ""
   });
   prepBusy = false;
   $("#btnPrep").disabled = false;
-  if (!r.ok) { setPrepStatus(r.error || "生成失败", true); setAgentState("err", "面试准备生成失败"); return; }
+  if (!r.ok) {
+    const msg = String(r.error || "生成失败");
+    const stopped = /已停止|已取消/.test(msg);
+    setPrepStatus(stopped ? "已停止" : msg, !stopped);
+    setAgentState("", stopped ? "任务已停止" : "多智能体系统就绪");
+    return;
+  }
   setPrepStatus("");
   setAgentState("", "多智能体系统就绪");
   $("#prepResult").innerHTML = '<div class="ver"><div class="txt">' + renderMd(r.text) + "</div><div class='ops'><button class='btn secondary sm' id='prepCopy'>复制</button></div></div>";
@@ -445,6 +756,50 @@ async function renderInterviewList() {
   }
 }
 
+// 面试问题库
+const Q_KEY = "bossAiInterviewQuestions";
+async function loadQuestions() {
+  const d = await api.getStore(Q_KEY);
+  return (d && d[Q_KEY]) || [];
+}
+
+async function renderQuestionList() {
+  const list = await loadQuestions();
+  const box = $("#ivqList");
+  if (!list.length) { box.innerHTML = '<div class="iv-empty">还没有记录问题，把面试中被问到的问题存进来吧</div>'; return; }
+  list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  box.innerHTML = "";
+  for (const it of list) {
+    const item = document.createElement("div");
+    item.className = "iv-item ivq-item";
+    item.innerHTML = '<div class="iv-top"><span class="iv-co ivq-q"></span><span class="ivq-src"></span></div>' +
+      '<div class="ivq-ans" style="display:none;"></div><div class="iv-ops"></div>';
+    item.querySelector(".ivq-q").textContent = it.question || "";
+    const src = [];
+    if (it.company) src.push(it.company);
+    if (it.title) src.push(it.title);
+    item.querySelector(".ivq-src").textContent = src.join(" · ");
+    const ops = item.querySelector(".iv-ops");
+    if (it.answer) {
+      const ans = item.querySelector(".ivq-ans");
+      ans.textContent = "我的回答：" + it.answer;
+      const toggle = mkBtn("查看回答", () => {
+        const show = ans.style.display === "none";
+        ans.style.display = show ? "block" : "none";
+        toggle.textContent = show ? "收起回答" : "查看回答";
+      });
+      ops.appendChild(toggle);
+    }
+    const del = mkBtn("删除", async () => {
+      const nl = (await loadQuestions()).filter((x) => x.id !== it.id);
+      await api.setStore({ [Q_KEY]: nl });
+      renderQuestionList();
+    });
+    ops.appendChild(del);
+    box.appendChild(item);
+  }
+}
+
 // ============================================================
 // 公司尽调（Agent 编排 + 进度）
 // ============================================================
@@ -473,24 +828,356 @@ async function doCompanyAnalyze() {
   setCoProgress(true, 0.05, "开始检索");
   $("#coResult").innerHTML = "";
   const input = { company };
-  if (window.__xhsEvidence && window.__xhsEvidence.length) input.xhsNotes = window.__xhsEvidence;
+  if (xhsEvidence && xhsEvidence.length) input.xhsNotes = xhsEvidence;
   const r = await api.agentInvoke("company", input);
   coBusy = false;
   $("#btnCompany").disabled = false;
   setCoProgress(false);
-  if (!r.ok) { setCoStatus(r.error || "分析失败", true); setAgentState("err", "尽调分析失败"); return; }
+  if (!r.ok) {
+    const msg = String(r.error || "分析失败");
+    setCoStatus(/已停止|已取消/.test(msg) ? "已停止" : msg, !/已停止|已取消/.test(msg));
+    setAgentState("", "多智能体系统就绪");
+    return;
+  }
   setCoStatus("");
   setAgentState("", "多智能体系统就绪");
-  $("#coResult").innerHTML = '<div class="ver"><div class="txt">' + renderMd(r.text) + "</div><div class='ops'><button class='btn secondary sm' id='coCopy'>复制报告</button></div></div>";
-  $("#coCopy").onclick = async () => {
-    try { await navigator.clipboard.writeText(r.text); $("#coCopy").textContent = "已复制"; } catch (e) {}
-  };
+  const el = document.createElement("div");
+  el.className = "ver";
+  const ops = document.createElement("div");
+  ops.className = "ops";
+  const copy = mkBtn("复制报告", async () => {
+    try { await navigator.clipboard.writeText(r.text); copy.textContent = "已复制"; setTimeout(() => (copy.textContent = "复制报告"), 1200); } catch (e) {}
+  });
+  const exportBtn = mkBtn("导出 Markdown", async () => {
+    exportBtn.textContent = "导出中…";
+    const sr = await api.saveReport(company + "-尽调报告-" + new Date().toISOString().slice(0, 10), r.text);
+    if (sr.ok) { exportBtn.textContent = "已导出✓"; setTimeout(() => (exportBtn.textContent = "导出 Markdown"), 1500); }
+    else if (sr.cancelled) { exportBtn.textContent = "导出 Markdown"; }
+    else { exportBtn.textContent = "导出失败"; setCoStatus(sr.error || "导出失败", true); setTimeout(() => (exportBtn.textContent = "导出 Markdown"), 1500); }
+  });
+  ops.appendChild(copy); ops.appendChild(exportBtn);
+  el.innerHTML = '<span class="tag">尽调报告</span><div class="txt"></div>';
+  el.appendChild(ops);
+  el.querySelector(".txt").innerHTML = renderMd(r.text);
+  $("#coResult").appendChild(el);
 }
 
 // ============================================================
-// 小红书 AI 搜索 · 舆情证据采集
+// 批量公司解析 + 批量尽调
 // ============================================================
-window.__xhsEvidence = [];
+let batchBusy = false;
+let batchCompanies = [];
+
+function setBatchStatus(text, isErr) {
+  const el = $("#batchStatus");
+  el.textContent = text || "";
+  el.className = "status" + (isErr ? " err" : "") + (text && !isErr ? " busy" : "");
+}
+
+// 本地规则兜底提取（LLM 解析失败时使用）：公司名后缀匹配 + 泛指词过滤
+function extractCompanyCandidates(text) {
+  const RE = /[\u4e00-\u9fa5A-Za-z0-9（）()]{2,}(?:股份有限公司|有限责任公司|集团有限公司|有限公司|集团|公司)/g;
+  const out = [];
+  const seen = new Set();
+  for (const m of String(text || "").matchAll(RE)) {
+    const s = m[0].trim();
+    if (s.length < 4) continue;
+    if (/上市公司|公司业务|公司简介|旗下公司|子公司|总公司|分公司|创业公司|母公司|大厂|甲方|乙方|公司内部|公司团队|公司招聘|公司官网|公司主页|公司介绍|公司信息|公司地址|公司电话|公司名称|公司情况/.test(s)) continue;
+    if (!seen.has(s)) { seen.add(s); out.push(s); }
+    if (out.length >= 30) break;
+  }
+  return out;
+}
+
+function parseJsonArr(t) {
+  const s = String(t || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  const m = s.match(/\[[\s\S]*\]/);
+  if (!m) return null;
+  try {
+    const v = JSON.parse(m[0]);
+    return Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : null;
+  } catch (e) { return null; }
+}
+
+async function doParseCompanies() {
+  if (batchBusy) return;
+  const text = $("#batchText").value.trim();
+  if (!text) { setBatchStatus("请先粘贴文本", true); return; }
+  batchBusy = true;
+  setBatchStatus("公司名解析器：正在提取公司名…");
+  const cands = extractCompanyCandidates(text);
+  let refined = null;
+  let usedLlm = false;
+  try {
+    const r = await api.agentInvoke("company-parse", { text, candidates: cands });
+    if (r.ok) { refined = parseJsonArr(r.text); usedLlm = !!refined; }
+  } catch (e) {}
+  batchCompanies = (usedLlm ? refined : cands).slice(0, 30);
+  batchBusy = false;
+  if (!batchCompanies.length) { setBatchStatus("未识别到公司名，请确认文本包含完整公司名", true); $("#batchResult").innerHTML = ""; $("#btnBatchRun").style.display = "none"; return; }
+  setBatchStatus("解析完成，共 " + batchCompanies.length + " 家" + (usedLlm ? "（AI 已去重纠错）" : "（本地规则识别）"));
+  renderBatchCandidates();
+}
+
+function renderBatchCandidates() {
+  const box = $("#batchCandidates");
+  box.innerHTML = "";
+  $("#btnBatchRun").style.display = batchCompanies.length ? "block" : "none";
+  batchCompanies.forEach((c, i) => {
+    const row = document.createElement("label");
+    row.className = "batch-cand";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.className = "batch-cb";
+    const span = document.createElement("span");
+    span.className = "batch-cand-name";
+    span.textContent = (i + 1) + ". " + c;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "btn ghost sm batch-del";
+    del.textContent = "删除";
+    del.onclick = (e) => { e.preventDefault(); batchCompanies.splice(i, 1); renderBatchCandidates(); };
+    row.appendChild(cb); row.appendChild(span); row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+
+function batchResultCard(name, r) {
+  const item = document.createElement("div");
+  item.className = "batch-item";
+  const head = document.createElement("div");
+  head.className = "batch-head";
+  const nm = document.createElement("span");
+  nm.className = "batch-name";
+  nm.textContent = name;
+  const tag = document.createElement("span");
+  tag.className = "batch-tag " + (r.ok ? "ok" : "err");
+  tag.textContent = r.ok ? "✓ 完成" : "失败";
+  const chev = document.createElement("span");
+  chev.className = "batch-chev";
+  chev.textContent = "▾";
+  head.appendChild(nm); head.appendChild(tag); head.appendChild(chev);
+  const body = document.createElement("div");
+  body.className = "batch-body";
+  body.style.display = "none";
+  if (r.ok) {
+    const txt = document.createElement("div");
+    txt.className = "txt";
+    txt.innerHTML = renderMd(r.text);
+    const ops = document.createElement("div");
+    ops.className = "ops";
+    const copy = mkBtn("复制报告", async () => {
+      try { await navigator.clipboard.writeText(r.text); copy.textContent = "已复制"; setTimeout(() => (copy.textContent = "复制报告"), 1200); } catch (e) {}
+    });
+    const search = mkBtn("BOSS 搜岗位", () => {
+      api.gotoUrl("https://www.zhipin.com/web/geek/jobs?query=" + encodeURIComponent(name));
+    });
+    ops.appendChild(copy); ops.appendChild(search);
+    body.appendChild(txt); body.appendChild(ops);
+  } else {
+    const err = document.createElement("div");
+    err.className = "batch-err";
+    err.textContent = String(r.error || "分析失败");
+    body.appendChild(err);
+  }
+  item.appendChild(head); item.appendChild(body);
+  head.onclick = () => {
+    const show = body.style.display === "none";
+    body.style.display = show ? "block" : "none";
+    chev.textContent = show ? "▴" : "▾";
+  };
+  head.style.cursor = "pointer";
+  return item;
+}
+
+async function runBatch() {
+  if (batchBusy) return;
+  const rows = $("#batchCandidates").querySelectorAll(".batch-cand");
+  const names = batchCompanies.filter((c, i) => rows[i] ? rows[i].querySelector("input").checked : true);
+  if (!names.length) { setBatchStatus("请至少勾选一家公司", true); return; }
+  batchBusy = true;
+  $("#btnBatchRun").disabled = true;
+  $("#btnParse").disabled = true;
+  $("#btnCompany").disabled = true;
+  $("#btnRisk").disabled = true;
+  const box = $("#batchResult");
+  box.innerHTML = "";
+  let okCount = 0;
+  for (let i = 0; i < names.length; i++) {
+    const n = names[i];
+    setBatchStatus("批量尽调 " + (i + 1) + "/" + names.length + " · " + n + " …");
+    setAgentState("busy", "尽调分析师 · " + n + "（" + (i + 1) + "/" + names.length + "）");
+    const r = await api.agentInvoke("company", { company: n });
+    const card = batchResultCard(n, r);
+    box.appendChild(card);
+    card.scrollIntoView({ block: "nearest" });
+    if (r.ok) okCount++;
+  }
+  batchBusy = false;
+  $("#btnBatchRun").disabled = false;
+  $("#btnParse").disabled = false;
+  $("#btnCompany").disabled = false;
+  $("#btnRisk").disabled = false;
+  setAgentState("", "多智能体系统就绪");
+  setBatchStatus(okCount === names.length ? "完成 " + names.length + " 家公司" : "完成 " + okCount + "/" + names.length + "（失败项可点击单独重试）");
+}
+
+// ============================================================
+// 简历图片库
+// ============================================================
+async function renderPanelImages() {
+  const box = $("#imgList");
+  let r = null;
+  try { r = await api.getImages(); } catch (e) {}
+  const images = (r && r.images) || [];
+  if (!images.length) { box.innerHTML = '<div class="iv-empty">还没有图片，点「＋ 上传」添加简历图</div>'; return; }
+  box.innerHTML = "";
+  for (const it of images) {
+    const item = document.createElement("div");
+    item.className = "img-row";
+    const img = document.createElement("img");
+    const info = document.createElement("div");
+    info.className = "img-info";
+    info.textContent = (it.name || "简历图") + "（" + Math.round((it.size || 0) / 1024) + " KB）";
+    const send = mkBtn("发给对方", async () => {
+      send.textContent = "发送中…";
+      const sr = await api.bossAction({ type: "send-resume-image", id: it.id });
+      send.textContent = "发给对方";
+      if (sr && sr.ok) {
+        setStatus("已注入聊天框上传入口，请确认后发送");
+        toast("已填入聊天框");
+      } else {
+        setStatus((sr && sr.error) || "发送失败，请打开聊天窗口后重试", true);
+      }
+    });
+    const del = mkBtn("删除", async () => {
+      await api.delImage(it.id);
+      renderPanelImages();
+    });
+    item.appendChild(img);
+    item.appendChild(info);
+    item.appendChild(send);
+    item.appendChild(del);
+    box.appendChild(item);
+    const rd = await api.readImage(it.id);
+    if (rd && rd.ok) img.src = rd.dataUrl;
+  }
+}
+
+// ============================================================
+// 求职避雷：本地静态检查单（零延迟，基于 BOSS 页当前职位/聊天上下文）
+function riskScanLocal(jd, chatText) {
+  const d = (jd && jd.desc) || "";
+  const t = (jd && jd.tags) || "";
+  const s = (jd && jd.salary) || "";
+  const c = (jd && jd.company) || "";
+  const chat = (chatText || "").slice(-800);
+  const all = d + " " + t + " " + chat;
+  const hits = [];
+  const hit = (level, label, tip) => hits.push({ level, label, tip });
+  if (/培训费|押金|保证金|先交|交费|收费|费用自理|培训贷|分期付款/.test(all))
+    hit(3, "涉及交费/押金/培训贷", "正规企业不会向求职者收费——聊到钱直接放弃并到平台举报。");
+  if (/身份证/.test(all) && /复印件|拍照|抵押|押/.test(all))
+    hit(3, "要求身份证复印件/抵押", "入职前只需出示原件核验，要求留存复印件或扣押证件的都有风险。");
+  if (/经验不限|无经验|应届生|接受小白/.test(all) && /1[3-9]K|2\dK|3\dK/.test(s) && d.length < 150)
+    hit(2, "低门槛 + 高薪（" + s + "）", "高薪无门槛最可疑，面试必问薪资结构：底薪多少、绩效占比、有无隐形扣款。");
+  if (!(jd && jd.hasJd) ? false : (!d && !t)) hit(1, "岗位描述极简/缺失", "JD 没有实质内容，可能是批量挂岗或信息收集，先查清楚再投。");
+  else if (jd && jd.hasJd && d.length < 30) hit(1, "岗位描述极简（不足 30 字）", "描述过于简略，警惕批量挂岗。");
+  if (/成为.{0,6}(自己|骄傲)|改变命运|人生赢家|共创辉煌|实现梦想/.test(all))
+    hit(1, "励志口号式文案", "画饼文案常见于销售/培训类岗位，确认清楚再投。");
+  if (/面议|薪资面议|上不封顶|综合薪资/.test(all))
+    hit(1, "薪资含糊", "面试必问：底薪、绩效结构、社保基数、转正规则。");
+  if (/劳务|人力|派遣|外包/.test(c))
+    hit(2, "劳务派遣/外包特征", "确认用工主体是谁（签合同的公司），务必问清五险一金与转正机制。");
+  if (/旗下|隶属|子公司|集团|上市|分支|分部/.test(d + c))
+    hit(1, "攀附大厂表述", "确认与所称大厂的真实关系，别把关联公司当大厂直招。");
+  if (/什么都能|全能|多面手|啥都做/.test(all) || (d.match(/负责/g) || []).length >= 3)
+    hit(1, "职责空洞（什么都能干）", "职责不清的岗位，入职后往往身兼多职。");
+  if (/急招|长期招|大量招|随时入职/.test(all))
+    hit(1, "急招/长期挂岗话术", "常年挂在平台的岗位，小心是信息收集或 KPI 牛。");
+  if (/培训$|先培训|收徒|学费|贷款|办卡/.test(chat))
+    hit(3, "聊天出现培训/贷款字样", "凡是要你先培训交钱、贷款分期、办卡的，一律拉黑并举报。");
+  return {
+    score: hits.reduce((n, h) => n + h.level, 0),
+    hits,
+    tag: hits.length ? (hits.some((h) => h.level >= 2) ? "存在可疑信号" : "仅轻微信号") : "未见明显静态信号"
+  };
+}
+
+// 避雷速查（RiskAgent：司法/口碑快速检索，应届生防骗）
+async function doRiskCheck() {
+  if (coBusy) return;
+  const company = $("#coName").value.trim();
+  if (!company) { setCoStatus("请输入公司名称或点「从当前职位获取」", true); return; }
+  coBusy = true;
+  $("#btnRisk").disabled = true;
+  setCoStatus("避雷速查师：正在检索司法与招聘口碑…");
+  setAgentState("busy", "避雷速查师 · 检索与写作中…");
+  setCoProgress(true, 0.1, "本地检查单 + 深度检索");
+  $("#coResult").innerHTML = "";
+
+  // 1) 取 BOSS 页当前职位/聊天上下文，跑本地静态检查单（即时）
+  let jd = null, chatText = "";
+  try {
+    const jr = await api.bossAction({ type: "get-chat-history" });
+    if (jr && jr.ok) {
+      jd = jr.jd || null;
+      chatText = (jr.history || []).map((m) => (m.self ? "我：" : "对方：") + (m.text || "")).join("\n").slice(-1500);
+    }
+  } catch (e) {}
+  const local = riskScanLocal(jd, chatText);
+  const box = document.createElement("div");
+  box.style.cssText = "font-size:12px;line-height:1.7;background:#f7f9fc;border:1px solid #eef1f6;border-radius:8px;padding:8px;margin-bottom:10px;color:#445;";
+  if (!local.hits.length) {
+    box.textContent = "本地检查单：" + local.tag + "（不代表无风险，继续深度检索…）";
+  } else {
+    const t = document.createElement("div");
+    t.style.cssText = "font-weight:700;color:" + (local.score >= 4 ? "#d63031" : local.score >= 2 ? "#e1700a" : "#00a854") + ";margin-bottom:4px;";
+    t.textContent = "本地检查单命中 " + local.hits.length + " 项（风险分 " + local.score + "）：";
+    box.appendChild(t);
+    local.hits.forEach((h) => {
+      const row = document.createElement("div");
+      row.style.cssText = "color:" + (h.level >= 2 ? "#d63031" : "#e1700a") + ";";
+      row.textContent = "· " + h.label + "——" + h.tip;
+      box.appendChild(row);
+    });
+  }
+  $("#coResult").appendChild(box);
+
+  // 2) 深度检索（公司名 + 职位/聊天上下文）
+  setCoStatus("避雷速查师：正在检索司法与招聘口碑…");
+  const r = await api.agentInvoke("risk", { company, jd, chatText });
+  coBusy = false;
+  $("#btnRisk").disabled = false;
+  setCoProgress(false);
+  if (!r.ok) {
+    const msg = String(r.error || "速查失败");
+    setCoStatus(/已停止|已取消/.test(msg) ? "已停止" : msg, !/已停止|已取消/.test(msg));
+    setAgentState("", "多智能体系统就绪");
+    return;
+  }
+  setCoStatus("");
+  setAgentState("", "多智能体系统就绪");
+  const el = document.createElement("div");
+  el.className = "ver";
+  const ops = document.createElement("div");
+  ops.className = "ops";
+  const copy = mkBtn("复制结果", async () => {
+    try { await navigator.clipboard.writeText(r.text); copy.textContent = "已复制"; setTimeout(() => (copy.textContent = "复制结果"), 1200); } catch (e) {}
+  });
+  ops.appendChild(copy);
+  el.innerHTML = '<span class="tag">避雷速查</span><div class="txt"></div>';
+  el.appendChild(ops);
+  el.querySelector(".txt").innerHTML = renderMd(r.text);
+  $("#coResult").appendChild(el);
+}
+
+// ============================================================
+// 小红书 AI 搜索 · 舆情证据采集（持久化到本地存储，刷新不丢）
+// ============================================================
+const XHS_KEY = "bossAiXhsEvidence";
+let xhsEvidence = [];
 
 function setXhsStatus(text, isErr) {
   const el = $("#xhsStatus");
@@ -499,14 +1186,22 @@ function setXhsStatus(text, isErr) {
 }
 
 function refreshXhsCount() {
-  $("#btnXhsClear").textContent = "清空 (" + window.__xhsEvidence.length + ")";
+  $("#btnXhsClear").textContent = "清空 (" + xhsEvidence.length + ")";
   const hint = $("#xhsHint");
-  if (window.__xhsEvidence.length) {
+  if (xhsEvidence.length) {
     hint.style.display = "block";
-    hint.textContent = "已收集 " + window.__xhsEvidence.length + " 条小红书证据，点击「公司尽调 · 开始分析」将自动带入报告。";
+    hint.textContent = "已收集 " + xhsEvidence.length + " 条小红书证据，点击「公司尽调 · 开始分析」将自动带入报告。";
   } else {
     hint.style.display = "none";
   }
+}
+
+async function loadXhsEvidence() {
+  try {
+    const d = await api.getStore(XHS_KEY);
+    xhsEvidence = (d && d[XHS_KEY]) || [];
+  } catch (e) { xhsEvidence = []; }
+  refreshXhsCount();
 }
 
 $("#btnXhsOpen").onclick = async () => {
@@ -521,21 +1216,25 @@ $("#btnXhsOpen").onclick = async () => {
   setXhsStatus("已在左侧打开小红书搜索「" + company + "」。登录后自行搜索，把结果粘贴到下方即可。");
 };
 
-$("#btnXhsAdd").onclick = () => {
+$("#btnXhsAdd").onclick = async () => {
   const t = $("#xhsPaste").value.trim();
   if (!t) { setXhsStatus("请先粘贴小红书 AI 搜索的回答内容", true); return; }
   const pieces = t.split(/\n{2,}|(?=###|【)/).map((s) => s.trim()).filter((s) => s.length >= 4);
   if (!pieces.length) pieces.push(t);
+  let added = 0;
   for (const p of pieces) {
-    if (!window.__xhsEvidence.includes(p)) window.__xhsEvidence.push("【小红书 AI 搜索】" + p);
+    const n = "【小红书 AI 搜索】" + p;
+    if (!xhsEvidence.includes(n)) { xhsEvidence.push(n); added++; }
   }
+  if (added) await api.setStore({ [XHS_KEY]: xhsEvidence });
   $("#xhsPaste").value = "";
-  setXhsStatus("已加入 " + pieces.length + " 条小红书证据");
+  setXhsStatus("已加入 " + added + " 条小红书证据");
   refreshXhsCount();
 };
 
-$("#btnXhsClear").onclick = () => {
-  window.__xhsEvidence = [];
+$("#btnXhsClear").onclick = async () => {
+  xhsEvidence = [];
+  await api.setStore({ [XHS_KEY]: [] });
   refreshXhsCount();
   setXhsStatus("已清空小红书证据");
 };
@@ -636,15 +1335,29 @@ $("#btnMatchRun").onclick = async () => {
   if (matchBusy) return;
   matchBusy = true;
   $("#btnMatchRun").disabled = true;
+  $("#btnMatchStop").style.display = "block";
   setMatchStatus("匹配师：正在从职位库检索候选岗位，逐个思考打分…");
+  setAgentState("busy", "岗位匹配师 · 检索与打分中…");
   $("#matchResult").innerHTML = "";
   const r = await api.matchRun();
   matchBusy = false;
   $("#btnMatchRun").disabled = false;
-  if (!r.ok) { setMatchStatus(r.error || "匹配失败", true); return; }
+  $("#btnMatchStop").style.display = "none";
+  if (!r.ok) {
+    if (r.cancelled) { setMatchStatus("匹配已停止"); setAgentState("", "多智能体系统就绪"); return; }
+    setMatchStatus(r.error || "匹配失败", true);
+    setAgentState("", "多智能体系统就绪");
+    return;
+  }
+  setAgentState("", "多智能体系统就绪");
   setMatchStatus(r.newOnes && r.newOnes.length ? "完成：检索 " + r.total + " 个岗位，发现 " + r.newOnes.length + " 个新高分岗位" : "完成：检索 " + r.total + " 个岗位，本次无新增高分岗位");
   renderMatchMeta(r.ts, r.total, r.newOnes ? r.newOnes.length : 0);
   renderMatchResult(r);
+};
+
+$("#btnMatchStop").onclick = async () => {
+  const r = await api.agentCancel();
+  if (r.ok && r.cancelled) setMatchStatus("正在停止…");
 };
 
 $("#matchInterval").onchange = () => {
@@ -701,9 +1414,96 @@ api.onMatchNew((data) => {
       if (st.settings.enabled) $("#matchInterval").value = String(st.settings.intervalMin || 30);
       if (st.settings.threshold) $("#matchThreshold").value = String(st.settings.threshold);
       if (st.settings.extra) $("#matchExtra").value = st.settings.extra;
+      if (st.lastSkip && st.lastSkip.ts) {
+        setMatchStatus("提示：上次定时匹配被跳过（" + (st.lastSkip.reason || "任务繁忙") + "），" + new Date(st.lastSkip.ts).toLocaleTimeString());
+      }
     }
   } catch (e) {}
 })();
+
+// ============================================================
+// 清理已读不回（超过1天）
+// ============================================================
+let cleanRunning = false;
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  return (d.getMonth() + 1) + "月" + d.getDate() + "日 " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+async function cleanUnreadFlow() {
+  if (cleanRunning) return;
+  setStatus("正在分析会话…");
+  $("#content").innerHTML = "";
+  const st = await api.bossAction({ type: "clean-unread-analyze" });
+  if (!st.ok) { setStatus(st.error || "分析失败", true); return; }
+  if (!st.count) { setStatus("没有找到超过1天未回的已读会话"); return; }
+  setStatus("");
+  renderCleanList(st.candidates || []);
+}
+
+function renderCleanList(cand) {
+  const c = $("#content");
+  c.innerHTML = "";
+  const t = document.createElement("div");
+  t.style.cssText = "font-weight:700;color:#1e6fff;font-size:13px;margin:10px 0 8px;";
+  t.textContent = "发现 " + cand.length + " 个已读不回（>1天）的会话：";
+  c.appendChild(t);
+  const listEl = document.createElement("div");
+  listEl.style.cssText = "max-height:260px;overflow-y:auto;border:1px solid #e4e8f0;border-radius:8px;padding:6px;margin-bottom:10px;";
+  cand.forEach((x) => {
+    const row = document.createElement("div");
+    row.style.cssText = "font-size:12px;color:#445;line-height:1.6;padding:5px 4px;border-bottom:1px dashed #eef1f6;";
+    row.innerHTML = "<b>" + escHtml(x.name) + "</b> · " + escHtml(x.brandName || "") + " <span style='color:#99a'>" + fmtTime(x.lastTS) + "</span><br><span style='color:#778'>" + escHtml((x.lastMsg || "").slice(0, 40)) + "</span>";
+    listEl.appendChild(row);
+  });
+  c.appendChild(listEl);
+  const row2 = document.createElement("div");
+  row2.style.cssText = "display:flex;gap:8px;";
+  const okBtn = document.createElement("button");
+  okBtn.className = "btn primary";
+  okBtn.textContent = "确认删除 " + cand.length + " 条";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "btn ghost";
+  cancelBtn.textContent = "取消";
+  okBtn.addEventListener("click", () => runCleanFlow(cand));
+  cancelBtn.addEventListener("click", () => { $("#content").innerHTML = ""; setStatus("已取消"); });
+  row2.appendChild(okBtn);
+  row2.appendChild(cancelBtn);
+  c.appendChild(row2);
+}
+
+async function runCleanFlow(cand) {
+  if (cleanRunning) return;
+  cleanRunning = true;
+  const btn = $("#btnCleanUnread");
+  btn.disabled = true;
+  setStatus("正在删除已读不回会话（约 " + Math.ceil(cand.length * 2.5) + " 秒），请勿关闭页面…");
+  $("#content").innerHTML = "";
+  const st = await api.bossAction({ type: "clean-unread-run", candidates: cand, _timeout: 300000 });
+  btn.disabled = false;
+  cleanRunning = false;
+  if (!st.ok) { setStatus(st.error || "删除失败", true); return; }
+  setStatus("完成：成功删除 " + st.okCount + " 条" + (st.skipCount ? "，跳过 " + st.skipCount : "") + (st.failCount ? "，失败 " + st.failCount : ""));
+  if (st.fails && st.fails.length) {
+    const f = document.createElement("div");
+    f.style.cssText = "font-size:12px;color:#d63031;line-height:1.6;margin-top:8px;";
+    f.textContent = st.fails.join("；");
+    $("#content").appendChild(f);
+  }
+  if (st.okCount > 0) {
+    const reload = document.createElement("button");
+    reload.className = "btn primary";
+    reload.style.cssText = "margin-top:10px;width:100%;";
+    reload.textContent = "刷新列表";
+    reload.addEventListener("click", () => api.reloadBoss());
+    $("#content").appendChild(reload);
+  }
+}
 
 // ============================================================
 // Tab
@@ -719,7 +1519,48 @@ function showTab(name) {
 $("#btnGreeting").onclick = () => runAction("greeting");
 $("#btnReply").onclick = () => runAction("reply");
 $("#btnLetter").onclick = showLetterForm;
+$("#btnCleanUnread").onclick = cleanUnreadFlow;
 $("#btnSave").onclick = saveSettings;
+$("#btnTestApi").onclick = async () => {
+  const el = $("#apiTestStatus");
+  el.textContent = "测试中…";
+  el.className = "status busy";
+  const key = $("#apiKey").value.trim();
+  if (!key) { el.textContent = "请先填写 API Key"; el.className = "status err"; return; }
+  const d = await api.getStore("bossAiSettings");
+  await api.setStore({ bossAiSettings: { ...(d.bossAiSettings || {}), apiKey: key } });
+  const r = await api.testApi();
+  if (r.ok) { el.textContent = "连接正常（" + (r.model || "") + "）：" + (r.text || ""); el.className = "status"; }
+  else { el.textContent = r.error || "连接失败"; el.className = "status err"; }
+};
+
+async function renderUsageStats() {
+  const r = await api.agentStats();
+  const el = $("#usageStats");
+  if (!r.ok || !r.stats) { el.textContent = "-"; return; }
+  const s = r.stats;
+  el.textContent = "模型调用 " + (s.calls || 0) + " 次 · 累计 Token " + (s.tokens || 0) + " · 失败 " + (s.errors || 0) + " 次";
+}
+
+async function renderLogBox() {
+  const r = await api.readLog(100);
+  const box = $("#logBox");
+  if (!r.ok) { box.textContent = "读取日志失败：" + (r.error || ""); box.style.display = "block"; return; }
+  if (!r.lines || !r.lines.length) { box.textContent = "暂无日志"; box.style.display = "block"; return; }
+  box.textContent = r.lines.join("\n");
+  box.style.display = "block";
+}
+
+$("#btnRefreshLog").onclick = renderLogBox;
+$("#btnCopyLog").onclick = async () => {
+  const box = $("#logBox");
+  if (!box.textContent) await renderLogBox();
+  try {
+    await navigator.clipboard.writeText(box.textContent || "");
+    $("#btnCopyLog").textContent = "已复制";
+    setTimeout(() => ($("#btnCopyLog").textContent = "复制日志"), 1200);
+  } catch (e) {}
+};
 $("#btnPrep").onclick = doPrep;
 $("#btnFromChat").onclick = async () => {
   const r = await api.bossAction({ type: "get-chat-context" });
@@ -752,7 +1593,45 @@ $("#btnSaveIv").onclick = async () => {
   $("#ivRecCompany").value = ""; $("#ivRecTitle").value = ""; $("#ivRecDate").value = ""; $("#ivRecNote").value = "";
   renderInterviewList();
 };
+$("#btnAddIvq").onclick = () => {
+  const f = $("#ivqForm");
+  f.style.display = f.style.display === "none" ? "block" : "none";
+  if (f.style.display === "block") $("#ivqQuestion").focus();
+};
+$("#btnSaveIvq").onclick = async () => {
+  const q = $("#ivqQuestion").value.trim();
+  if (!q) { setPrepStatus("请填写问题内容", true); return; }
+  const rec = {
+    id: Date.now().toString(36),
+    question: q,
+    company: $("#ivqCompany").value.trim(),
+    title: $("#ivqTitle").value.trim(),
+    answer: $("#ivqAnswer").value.trim(),
+    ts: Date.now()
+  };
+  const list = await loadQuestions();
+  list.push(rec);
+  await api.setStore({ [Q_KEY]: list });
+  $("#ivqForm").style.display = "none";
+  $("#ivqQuestion").value = ""; $("#ivqCompany").value = ""; $("#ivqTitle").value = ""; $("#ivqAnswer").value = "";
+  renderQuestionList();
+};
 $("#btnCompany").onclick = doCompanyAnalyze;
+$("#btnPickImage").onclick = async () => {
+  const r = await api.pickImage();
+  if (r && r.ok) {
+    if (!r.canceled) {
+      setStatus("已上传 " + ((r.added && r.added.length) || 0) + " 张图片");
+      showTab("assist");
+    }
+    renderPanelImages();
+  } else {
+    setStatus("上传失败：" + ((r && r.error) || "未知错误"), true);
+  }
+};
+$("#btnParse").onclick = doParseCompanies;
+$("#btnBatchRun").onclick = runBatch;
+  $("#btnRisk").onclick = doRiskCheck;
 $("#btnCoFromJd").onclick = async () => {
   const r = await api.bossAction({ type: "getJd" });
   if (r.ok && r.jd && r.jd.company) {
@@ -775,7 +1654,6 @@ $("#btnReloadS").onclick = () => api.reloadBoss();
 $("#btnPinS").onclick = () => $("#btnPin").click();
 $("#btnCollapse").onclick = () => api.collapse();
 $("#btnExpand").onclick = () => api.expand();
-$("#btnGoChat").onclick = () => api.gotoChat();
 $("#btnClearActivity").onclick = async () => {
   await api.agentLogClear();
   renderActivity();
@@ -790,19 +1668,58 @@ api.onAgentEvent((ev) => {
   if (!ev || !ev.type) return;
   if (ev.type === "agent:start") {
     setAgentState("busy", ev.agentName + " · 执行中…");
-  } else if (ev.type === "agent:done") {
-    setAgentState("", "多智能体系统就绪");
+    const stop = $("#btnStopAgent");
+    if (stop) stop.style.display = "block";
+  } else if (ev.type === "agent:done" || ev.type === "agent:cancelled") {
+    setAgentState("", ev.type === "agent:cancelled" ? "任务已停止" : "多智能体系统就绪");
+    const stop = $("#btnStopAgent");
+    if (stop) stop.style.display = "none";
     renderActivity();
   } else if (ev.type === "agent:error") {
     setAgentState("err", "智能体执行失败");
+    const stop = $("#btnStopAgent");
+    if (stop) stop.style.display = "none";
     renderActivity();
   } else if (ev.type === "progress") {
-    const steps = 5;
-    const pct = Math.min(0.95, (ev.total || 0) / steps * 0.95);
-    setCoProgress(true, pct, "阶段 " + (ev.total || 0) + "/" + steps + " · " + (ev.label || ""));
-    setCoStatus("尽调分析师：「" + (ev.label || "") + "」…");
+    if (ev.intent === "match") {
+      setMatchStatus("匹配师：「" + (ev.label || "") + "」…");
+    } else if (ev.intent === "risk") {
+      const steps = 3;
+      const pct = Math.min(0.95, (ev.total || 0) / steps * 0.95);
+      setCoProgress(true, pct, "阶段 " + (ev.total || 0) + "/" + steps + " · " + (ev.label || ""));
+      setCoStatus("避雷速查师：「" + (ev.label || "") + "」…");
+    } else {
+      const steps = 5;
+      const pct = Math.min(0.95, (ev.total || 0) / steps * 0.95);
+      setCoProgress(true, pct, "阶段 " + (ev.total || 0) + "/" + steps + " · " + (ev.label || ""));
+      setCoStatus("尽调分析师：「" + (ev.label || "") + "」…");
+    }
   }
 });
+
+$("#btnStopAgent").onclick = async () => {
+  const r = await api.agentCancel();
+  if (r.ok && r.cancelled) {
+    setAgentState("", "正在停止…");
+  }
+};
+
+// 对话助手
+$("#chatSend").onclick = sendChat;
+$("#chatInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    sendChat();
+  }
+});
+$("#modeChat").onclick = () => { chatMode = "chat"; renderChatMode(); };
+$("#modeForm").onclick = () => { chatMode = "form"; renderChatMode(); };
+$("#chatClear").onclick = async () => {
+  if (!chatHistory.length) return;
+  chatHistory = [];
+  await api.setStore({ [CHAT_KEY]: [] });
+  renderChat();
+};
 
 api.onStoreChanged((key) => {
   if (key === "bossAiSettings") { loadSettings(); }
@@ -811,8 +1728,15 @@ api.onStoreChanged((key) => {
 api.onNav((section) => { if (section === "settings") showTab("settings"); });
 
 // 初始化
+bindResumeEvents();
 loadSettings();
 renderPending();
+renderChat();
+renderChatMode();
 renderInterviewList();
+renderQuestionList();
+renderPanelImages();
 renderActivity();
 refreshZoom();
+loadXhsEvidence();
+renderUsageStats();

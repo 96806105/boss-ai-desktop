@@ -33,7 +33,15 @@
   }
 
   function getSettings() {
-    return settings || (settings = { apiKey: "", model: "deepseek-chat", style: "prof", customPrompt: "", resumeText: "", resumeFileName: "", autoReply: true, cooldown: 10, maxContext: 8, msgSelector: "", notifySound: false });
+    return settings || (settings = { apiKey: "", model: "deepseek-chat", style: "prof", customPrompt: "", resumeText: "", resumeFileName: "", resumes: [], activeResumeId: "", autoReply: true, cooldown: 10, maxContext: 8, msgSelector: "", notifySound: false });
+  }
+
+  /** 当前生效的简历文本（多简历：优先 activeResumeId，回退旧 resumeText） */
+  function hasResumeText(s) {
+    const list = Array.isArray(s.resumes) ? s.resumes : [];
+    const active = list.find((r) => r && r.id === s.activeResumeId) || list[0];
+    if (active && String(active.text || "").trim()) return true;
+    return !!String(s.resumeText || "").trim();
   }
 
   async function loadSettings() {
@@ -46,6 +54,8 @@
       customPrompt: s.customPrompt || "",
       resumeText: s.resumeText || "",
       resumeFileName: s.resumeFileName || "",
+      resumes: Array.isArray(s.resumes) ? s.resumes : [],
+      activeResumeId: s.activeResumeId || "",
       autoReply: s.autoReply !== false,
       cooldown: s.cooldown || 10,
       maxContext: s.maxContext || 8,
@@ -100,6 +110,60 @@
     const company = pickText([".boss-info .boss-name", ".boss-name"], root);
     const tags = pickTextList([".tag-list li"], root).slice(0, 5);
     return { hasJd: !!title, title, salary, company, tags: tags.join("、"), desc: "" };
+  }
+
+  // ---------- 新版聊天页 API 提取（BOSS 新版 DOM 无职位卡片，走官方接口） ----------
+  async function fetchFriendList() {
+    try {
+      const r = await fetch("https://www.zhipin.com/wapi/zprelation/friend/geekFilterByLabel?labelId=0", {
+        credentials: "include",
+        headers: { "Accept": "application/json" }
+      });
+      if (!r.ok) return [];
+      const j = await r.json();
+      const list = (j && j.zpData && j.zpData.friendList) || [];
+      return list.map((f) => ({
+        friendId: f.friendId,
+        encryptFriendId: f.encryptFriendId,
+        name: f.name || "",
+        company: f.brandName || "",
+        jobName: f.jobName || "",
+        jobTypeDesc: f.jobTypeDesc || "",
+        jobCity: f.jobCity || "",
+        positionName: f.positionName || "",
+        bossTitle: f.bossTitle || "",
+        updateTime: f.updateTime || 0
+      }));
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function jdFromFriends(friends) {
+    if (!friends || !friends.length) return null;
+    const top = friends.slice().sort((a, b) => (b.updateTime || 0) - (a.updateTime || 0))[0];
+    return {
+      hasJd: true,
+      via: "api",
+      title: top.jobName || top.positionName || "",
+      company: top.company || "",
+      salary: "",
+      tags: [top.jobTypeDesc, top.jobCity, top.positionName, top.bossTitle].filter(Boolean).join("、"),
+      desc: "",
+      friendName: top.name || "",
+      friends: friends
+    };
+  }
+
+  async function extractJobInfoAsync() {
+    const dom = extractJobInfo();
+    if (dom && dom.hasJd) return dom;
+    if (/web\/geek\/chat/.test(location.href)) {
+      const friends = await fetchFriendList();
+      const apiJd = jdFromFriends(friends);
+      if (apiJd) return apiJd;
+    }
+    return dom;
   }
 
   // ---------- 职位列表筛选（本地生效） ----------
@@ -262,27 +326,29 @@
   function findInputBox() {
     const sels = [
       ".chat-input[contenteditable='true']",
+      "#chat-input[contenteditable='true']",
       "[contenteditable='true'][data-placeholder]",
       ".chat-input textarea",
       ".chat-input input",
       "textarea[placeholder*='请输入']",
       ".chat-footer [contenteditable='true']",
       ".chat-footer textarea",
-      "textarea",
-      "[contenteditable='true']"
+      ".chat-conversation textarea, .chat-conversation [contenteditable='true']",
+      "[class*='chat'] textarea, [class*='chat'] [contenteditable='true']"
     ];
-    const visible = $all("textarea, input, [contenteditable='true']").filter(isVisible);
+    const visible = $all("textarea, input, [contenteditable='true']").filter(isVisible).filter((el) => {
+      if (el.tagName === "INPUT") {
+        const ph = (el.getAttribute("placeholder") || "") + " " + (el.className || "") + " " + (el.type || "");
+        if (/(search|搜索|查询)/i.test(ph)) return false;
+      }
+      return true;
+    });
     if (!visible.length) return null;
     for (const sel of sels) {
-      const match = visible.find((el) => {
-        const ok = sel.includes("[contenteditable='true']")
-          ? el.matches(sel)
-          : el.matches(sel);
-        return ok;
-      });
+      const match = visible.find((el) => el.matches(sel));
       if (match) return match;
     }
-    return visible[visible.length - 1];
+    return null;
   }
 
   function setInputText(input, text) {
@@ -476,12 +542,30 @@
       .pending-box { border: 1px dashed #1e6fff; background: #f3f8ff; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
       .pending-title { font-size: 12px; font-weight: 700; color: #1e6fff; margin-bottom: 6px; }
       .fab-dot { position: absolute; top: 4px; right: 4px; width: 12px; height: 12px; border-radius: 50%; background: #ff4757; border: 2px solid #fff; }
+      .img-bank { border: 1px solid #e4e8f0; border-radius: 10px; padding: 8px; margin-bottom: 10px; }
+      .img-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+      .img-title { font-size: 12px; font-weight: 700; color: #345; }
+      .img-add { background: #1e6fff; color: #fff; border: none; border-radius: 6px; font-size: 11px; padding: 3px 10px; cursor: pointer; }
+      .img-add:hover { background: #0b4fd6; }
+      .img-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+      .img-item { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid #e4e8f0; cursor: pointer;
+                   aspect-ratio: 3 / 4; background: #f2f5fa; }
+      .img-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .img-item:hover { border-color: #1e6fff; }
+      .img-del { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; line-height: 14px; text-align: center;
+                 border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; border: none; cursor: pointer; display: none; }
+      .img-item:hover .img-del { display: block; }
+      .img-empty { color: #99a; font-size: 11px; text-align: center; padding: 6px 0; }
     </style>
     <button class="fab" title="BOSS AI 助手">AI<span class="fab-dot" data-el="fabDot" style="display:none"></span></button>
     <div class="panel">
       <div class="head"><span class="t">AI 沟通助手</span><button class="close">×</button></div>
       <div class="body">
         <div class="status hint"></div>
+        <div class="img-bank">
+          <div class="img-head"><span class="img-title">简历图片 · 点击发送</span><button class="img-add" data-act="pick-image">＋ 上传</button></div>
+          <div data-el="imgGrid" class="img-grid"></div>
+        </div>
         <div data-el="pendingBox" class="pending-box" style="display:none;">
           <div class="pending-title" data-el="pendingTitle"></div>
           <div data-el="pendingList"></div>
@@ -489,6 +573,9 @@
         <div class="row">
           <button class="btn primary" data-act="greeting">生成招呼语</button>
           <button class="btn ghost" data-act="reply">生成回复</button>
+        </div>
+        <div class="row" data-el="stopRow" style="display:none;">
+          <button class="btn ghost" data-act="cancel" style="width:100%; border:1px solid #d63031; color:#d63031;">停止生成</button>
         </div>
         <div class="row">
           <button class="btn ghost" data-act="open-panel" style="width:100%">打开操作台（跨页面常驻）</button>
@@ -521,7 +608,9 @@
     pendingBox: shadow.querySelector('[data-el="pendingBox"]'),
     pendingTitle: shadow.querySelector('[data-el="pendingTitle"]'),
     pendingList: shadow.querySelector('[data-el="pendingList"]'),
-    fabDot: shadow.querySelector('[data-el="fabDot"]')
+    fabDot: shadow.querySelector('[data-el="fabDot"]'),
+    stopRow: shadow.querySelector('[data-el="stopRow"]'),
+    imgGrid: shadow.querySelector('[data-el="imgGrid"]')
   };
 
   function setStatus(text, isErr) {
@@ -533,11 +622,74 @@
     const s = getSettings();
     const jd = extractJobInfo();
     const parts = [];
-    parts.push(s.resumeText ? "简历 ●" : "简历 ○");
+    parts.push(hasResumeText(s) ? "简历 ●" : "简历 ○");
     parts.push(s.apiKey ? "API Key ●" : "API Key ○");
     parts.push(jd.hasJd ? "已识别JD ●" : "未识别到JD");
     els.hint.textContent = parts.join("  ·  ") + "（在设置页配置）";
     els.hint.style.cursor = "pointer";
+  }
+
+  // ---------- 简历图片库 ----------
+  async function renderImageBank() {
+    const grid = els.imgGrid;
+    let res = null;
+    try { res = await chrome.runtime.sendMessage({ type: "list-images" }); } catch (e) {}
+    const images = (res && res.images) || [];
+    if (!images.length) { grid.innerHTML = '<div class="img-empty">还没有图片，点「＋ 上传」添加简历图</div>'; return; }
+    grid.innerHTML = "";
+    for (const it of images) {
+      const box = document.createElement("div");
+      box.className = "img-item";
+      const img = document.createElement("img");
+      img.alt = it.name || "简历图";
+      const del = document.createElement("button");
+      del.className = "img-del";
+      del.textContent = "×";
+      del.title = "删除";
+      del.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try { await chrome.runtime.sendMessage({ type: "delete-image", id: it.id }); } catch (err) {}
+        renderImageBank();
+      });
+      box.appendChild(img);
+      box.appendChild(del);
+      box.addEventListener("click", () => sendImage(it));
+      grid.appendChild(box);
+      chrome.runtime.sendMessage({ type: "read-image", id: it.id }).then((r) => { if (r && r.ok) img.src = r.dataUrl; }).catch(() => {});
+    }
+  }
+
+  function findFileInput() {
+    const all = Array.from(document.querySelectorAll('input[type="file"]'));
+    const acc = (el) => (el.getAttribute("accept") || "").toLowerCase();
+    return all.find((el) => acc(el).includes("image")) || all[0] || null;
+  }
+
+  function injectFile(input, dataUrl, fileName) {
+    const mime = (dataUrl.match(/^data:([^;]+)/) || [])[1] || "image/png";
+    const b64 = dataUrl.split(",")[1];
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const file = new File([bytes], fileName || "resume.png", { type: mime });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files").set;
+    setter.call(input, dt.files);
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  async function sendImage(it) {
+    let res = null;
+    try { res = await chrome.runtime.sendMessage({ type: "read-image", id: it.id }); } catch (e) {}
+    if (!res || !res.ok) { setStatus("读取图片失败", true); return; }
+    if (!isChatPage()) { setStatus("请先打开聊天窗口，再点击图片发送", true); return; }
+    const input = findFileInput();
+    if (!input) { setStatus("未找到图片上传入口，请手动点击输入框旁的图片按钮", true); return; }
+    try {
+      injectFile(input, res.dataUrl, it.name || "resume.png");
+      setStatus("已注入上传入口，请确认图片后发送");
+    } catch (e) { setStatus("发送失败：" + String((e && e.message) || e), true); }
   }
 
   function renderGreeting(res) {
@@ -627,18 +779,23 @@
     els.pendingBox.style.display = "block";
   }
 
+  let widgetBusy = false;
+
   async function runAction(kind) {
+    if (widgetBusy) return;
     await loadSettings();
     const s = getSettings();
     if (!s.apiKey) {
       setStatus("未配置 API Key，请先打开设置页填写", true);
       return;
     }
-    if (kind === "greeting" && !s.resumeText) {
+    if (kind === "greeting" && !hasResumeText(s)) {
       setStatus("未配置简历，生成效果会变差，建议先在设置页上传简历", true);
     }
     els.content.innerHTML = "";
     setStatus("");
+    widgetBusy = true;
+    els.stopRow.style.display = "block";
     els.status.innerHTML = '<span class="spinner"></span>正在生成…';
     try {
       const res = kind === "greeting" ? await generateGreeting() : await generateReply();
@@ -650,7 +807,12 @@
         renderReply(res);
       }
     } catch (err) {
-      setStatus(String(err.message || err), true);
+      const msg = String(err.message || err);
+      if (/已停止|已取消/.test(msg)) setStatus("已停止生成");
+      else setStatus(msg, true);
+    } finally {
+      widgetBusy = false;
+      els.stopRow.style.display = "none";
     }
   }
 
@@ -700,11 +862,10 @@
   async function goChatAndFill(text) {
     await chrome.storage.local.set({ [AUTOFILL_KEY]: { text, ts: Date.now() } });
     const entry = findChatEntryEl();
-    if (entry) {
-      entry.click();
-    }
+    if (entry) entry.click();
     setTimeout(() => {
       if (!isChatPage()) location.href = "https://www.zhipin.com/web/geek/chat";
+      else autoFillFromMarker();
     }, 1800);
   }
 
@@ -714,7 +875,8 @@
     const m = d[AUTOFILL_KEY];
     if (!m || !m.text) return;
     const t0 = Date.now();
-    while (Date.now() - t0 < 20000) {
+    let openTried = false;
+    while (Date.now() - t0 < 30000) {
       const input = findInputBox();
       if (input) {
         const ok = setInputText(input, m.text);
@@ -727,9 +889,28 @@
         }
         return;
       }
+      if (!openTried) {
+        openTried = true;
+        requestOpenFirstChat();
+      }
       await new Promise((r) => setTimeout(r, 1500));
     }
     await chrome.storage.local.remove(AUTOFILL_KEY);
+  }
+
+  /** 聊天列表页兜底：请主进程用真实输入事件点开第一条会话（BOSS 新版页面忽略合成 click） */
+  function requestOpenFirstChat() {
+    const rect = firstChatRect();
+    if (!rect) return;
+    try { chrome.runtime.sendMessage({ type: "desktop-open-first-chat", x: rect.x, y: rect.y }); } catch (e) {}
+  }
+
+  /** 第一个会话卡片的视口中心坐标 */
+  function firstChatRect() {
+    const wrap = $all(".friend-content-warp").filter(isVisible)[0];
+    if (!wrap) return null;
+    const r = (wrap.closest("li") || wrap).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: Math.max(10, r.top + Math.min(r.height / 2, 60)) };
   }
 
   // ---------- 聊天监听 ----------
@@ -783,12 +964,161 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  // ---------- 清理已读不回（超过1天） ----------
+  const CLEAN_DAY_MS = 24 * 60 * 60 * 1000;
+  const CLEAN_INTERVAL_MS = 2500;
+
+  function readZpToken() {
+    const m = /(?:^|;\s*)bst=([^;]*)/.exec(document.cookie);
+    return m ? m[1] : "";
+  }
+
+  function makeTraceId() {
+    let t = Date.now().toString(16).toLowerCase().padStart(13, "0").slice(-13);
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let e = "";
+    for (let n = 0; n < 36; n++) e += chars[Math.floor(62 * Math.random())];
+    const base = "F-" + t + e;
+    let hash = 0;
+    for (let i = 0; i < base.length; i++) hash = (hash * 31 + base.charCodeAt(i)) >>> 0;
+    return base + hash.toString(36);
+  }
+
+  async function cleanUnreadFlow() {
+    setStatus("正在分析会话…");
+    els.content.innerHTML = "";
+    const r = await analyzeClean();
+    if (!r.ok) { setStatus(r.error, true); return; }
+    setStatus("");
+    if (!r.count) { setStatus("没有找到超过1天未回的已读会话"); return; }
+    renderCleanCandidates(r.candidates);
+  }
+
+  async function analyzeClean() {
+    try {
+      const my = await (await fetch("/wapi/zpuser/wap/getUserInfo.json")).json();
+      const myUid = my && my.zpData && (my.zpData.uid || my.zpData.userId);
+      if (!myUid) return { ok: false, error: "无法获取用户信息，请刷新后重试" };
+      const r = await fetch("/wapi/zprelation/friend/getGeekFriendList.json", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "x-requested-with": "XMLHttpRequest" },
+        body: "page=1&limit=100"
+      });
+      const j = await r.json();
+      const list = (j.zpData && j.zpData.result) || [];
+      const now = Date.now();
+      const cand = list.filter((x) => (
+        x.lastMessageInfo &&
+        x.lastMessageInfo.fromId === myUid &&
+        x.lastMessageInfo.status === 2 &&
+        !x.unreadMsgCount &&
+        !x.isTop &&
+        x.lastTS && (now - x.lastTS > CLEAN_DAY_MS)
+      ));
+      return { ok: true, count: cand.length, candidates: cand };
+    } catch (e) {
+      return { ok: false, error: "分析失败：" + (e && e.message || e) };
+    }
+  }
+
+  function renderCleanCandidates(cand) {
+    const c = document.createElement("div");
+    const t = document.createElement("div");
+    t.style.cssText = "font-weight:700;color:#1e6fff;font-size:13px;margin-bottom:8px;";
+    t.textContent = "发现 " + cand.length + " 个已读不回（>1天）的会话：";
+    c.appendChild(t);
+    const listEl = document.createElement("div");
+    listEl.style.cssText = "max-height:240px;overflow-y:auto;border:1px solid #eef1f6;border-radius:8px;padding:6px;margin-bottom:10px;";
+    cand.forEach((x) => {
+      const row = document.createElement("div");
+      row.style.cssText = "font-size:12px;color:#445;line-height:1.6;padding:5px 4px;border-bottom:1px dashed #eef1f6;";
+      const when = x.lastTime || new Date(x.lastTS).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      row.innerHTML = "<b>" + escHtml(x.name) + "</b> · " + escHtml(x.brandName || "") + " <span style='color:#99a'>" + when + "</span><br><span style='color:#778'>" + escHtml((x.lastMsg || "").slice(0, 40)) + "</span>";
+      listEl.appendChild(row);
+    });
+    c.appendChild(listEl);
+    const row2 = document.createElement("div");
+    row2.style.cssText = "display:flex;gap:8px;";
+    const okBtn = document.createElement("button");
+    okBtn.className = "btn primary";
+    okBtn.textContent = "确认删除 " + cand.length + " 条";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "btn ghost";
+    cancelBtn.textContent = "取消";
+    okBtn.addEventListener("click", () => executeClean(cand));
+    cancelBtn.addEventListener("click", () => { els.content.innerHTML = ""; setStatus("已取消"); });
+    row2.appendChild(okBtn);
+    row2.appendChild(cancelBtn);
+    c.appendChild(row2);
+    els.content.appendChild(c);
+  }
+
+  async function executeClean(cand) {
+    els.content.innerHTML = "";
+    const r = await runClean(cand, (t) => setStatus(t));
+    setStatus("完成：成功删除 " + r.okCount + " 条" + (r.skipCount ? "，跳过 " + r.skipCount : "") + (r.failCount ? "，失败 " + r.failCount : ""));
+    if (r.fails.length) {
+      const f = document.createElement("div");
+      f.style.cssText = "font-size:12px;color:#d63031;line-height:1.6;margin-top:8px;";
+      f.textContent = r.fails.join("；");
+      els.content.appendChild(f);
+    }
+    if (r.okCount > 0) {
+      const reload = document.createElement("button");
+      reload.className = "btn primary";
+      reload.style.cssText = "margin-top:10px;width:100%;";
+      reload.textContent = "刷新列表";
+      reload.addEventListener("click", () => location.reload());
+      els.content.appendChild(reload);
+    }
+  }
+
+  async function runClean(cand, onStatus) {
+    const my = await (await fetch("/wapi/zpuser/wap/getUserInfo.json")).json();
+    const myUid = my && my.zpData && (my.zpData.uid || my.zpData.userId);
+    let okCount = 0, skipCount = 0, failCount = 0;
+    const fails = [];
+    for (let i = 0; i < cand.length; i++) {
+      const x = cand[i];
+      if (onStatus) onStatus("正在删除 (" + (i + 1) + "/" + cand.length + ") " + x.name);
+      try {
+        if (!x.securityId) { skipCount++; continue; }
+        const g = await (await fetch("/wapi/zpchat/geek/getBossData?bossId=" + encodeURIComponent(x.encryptBossId) + "&bossSource=0")).json();
+        const d = g.zpData && g.zpData.data;
+        if (d && (d.hasInterview || d.isBlacked)) { skipCount++; continue; }
+        const body = new URLSearchParams({ securityId: x.securityId });
+        const dl = await (await fetch("/wapi/zprelation/friend/delete.json", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "x-requested-with": "XMLHttpRequest",
+            "zp_token": readZpToken(),
+            "traceid": makeTraceId()
+          },
+          body: body.toString()
+        })).json();
+        if (dl.code === 0) okCount++;
+        else { failCount++; fails.push(x.name + "(" + (dl.message || dl.code) + ")"); }
+      } catch (e) {
+        failCount++;
+        fails.push(x.name + "(" + (e && e.message || e) + ")");
+      }
+      await new Promise((s) => setTimeout(s, CLEAN_INTERVAL_MS));
+    }
+    return { okCount, skipCount, failCount, fails };
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  }
+
   // ---------- 事件绑定 ----------
   els.fab.addEventListener("click", () => {
     const open = els.panel.classList.toggle("open");
     if (open) {
       showHint();
       renderPending();
+      renderImageBank();
       els.content.innerHTML = "";
       setStatus("");
     }
@@ -801,13 +1131,29 @@
     if (a === "greeting" || a === "reply") runAction(a);
     if (a === "options") chrome.runtime.sendMessage({ type: "openOptions" });
     if (a === "open-panel") chrome.runtime.sendMessage({ type: "openPanel" });
+    if (a === "pick-image") {
+      chrome.runtime.sendMessage({ type: "pick-image" }).then((r) => {
+        if (r && r.ok) {
+          if (r.canceled) return;
+          setStatus("已上传 " + ((r.added && r.added.length) || 0) + " 张图片");
+          renderImageBank();
+        } else {
+          setStatus("上传失败：" + ((r && r.error) || "未知错误"), true);
+        }
+      }).catch((err) => setStatus("上传失败：" + String((err && err.message) || err), true));
+    }
+    if (a === "cancel") {
+      chrome.runtime.sendMessage({ type: "cancel" });
+      setStatus("正在停止…");
+    }
   });
 
   // ---------- 操作台消息桥（面板窗口 ≈ 当前页） ----------
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return;
     if (msg.type === "getJd") {
-      sendResponse({ jd: extractJobInfo() });
+      extractJobInfoAsync().then((jd) => sendResponse({ ok: true, jd }));
+      return true;
     } else if (msg.type === "generate-now") {
       loadSettings().then(() => {
         const run = msg.kind === "greeting" ? generateGreeting() : generateReply();
@@ -816,6 +1162,7 @@
       });
       return true;
     } else if (msg.type === "fill-input") {
+      if (!isChatPage()) { sendResponse({ ok: false, error: "未找到聊天输入框，请打开聊天窗口" }); return; }
       const input = findInputBox();
       if (!input) { sendResponse({ ok: false, error: "未找到聊天输入框，请打开聊天窗口" }); return; }
       const ok = setInputText(input, msg.text);
@@ -823,23 +1170,37 @@
       sendResponse({ ok, error: ok ? "" : "填入失败，请手动复制粘贴" });
     } else if (msg.type === "get-chat-context") {
       sendResponse({ ok: true, ctx: extractChatContext() });
+    } else if (msg.type === "get-chat-history") {
+      extractJobInfoAsync().then((jd) => sendResponse({ ok: true, jd, history: collectConversation() }));
+      return true;
     } else if (msg.type === "goto-chat-and-fill") {
       goChatAndFill(msg.text).then(() => sendResponse({ ok: true }));
+      return true;
+    } else if (msg.type === "send-resume-image") {
+      chrome.runtime.sendMessage({ type: "read-image", id: msg.id }).then((res) => {
+        if (!res || !res.ok) { sendResponse({ ok: false, error: "图片不存在" }); return; }
+        if (!isChatPage()) { sendResponse({ ok: false, error: "未找到聊天输入框，请打开聊天窗口" }); return; }
+        const input = findFileInput();
+        if (!input) { sendResponse({ ok: false, error: "未找到图片上传入口，请手动点击输入框旁的图片按钮" }); return; }
+        try { injectFile(input, res.dataUrl, res.name || "resume.png"); sendResponse({ ok: true, sent: true }); }
+        catch (e) { sendResponse({ ok: false, error: String((e && e.message) || e) }); }
+      }).catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
       return true;
     } else if (msg.type === "panel-status") {
       loadSettings().then(() => {
         const s = getSettings();
-        const jd = extractJobInfo();
-        getPendingGreeting().then((p) => sendResponse({
-          ok: true,
-          status: {
-            resume: !!s.resumeText,
-            apiKey: !!s.apiKey,
-            onDetail: jd.hasJd,
-            autoReply: s.autoReply,
-            pending: !!(p && p.versions && p.versions.length)
-          }
-        }));
+        extractJobInfoAsync().then((jd) => {
+          getPendingGreeting().then((p) => sendResponse({
+            ok: true,
+            status: {
+              resume: hasResumeText(s),
+              apiKey: !!s.apiKey,
+              onDetail: jd.hasJd,
+              autoReply: s.autoReply,
+              pending: !!(p && p.versions && p.versions.length)
+            }
+          }));
+        });
       });
       return true;
     } else if (msg.type === "apply-filter") {
@@ -872,6 +1233,14 @@
         });
       }
       sendResponse({ ok: rows.length > 0, total: rows.length, rows });
+    } else if (msg.type === "clean-unread-analyze") {
+      analyzeClean().then((r) => sendResponse(r));
+      return true;
+    } else if (msg.type === "clean-unread-run") {
+      const cand = Array.isArray(msg.candidates) ? msg.candidates : [];
+      if (!cand.length) { sendResponse({ ok: false, error: "没有可删除的会话" }); return; }
+      runClean(cand).then((r) => sendResponse({ ok: true, ...r }));
+      return true;
     }
   });
   els.notif.addEventListener("click", (e) => {

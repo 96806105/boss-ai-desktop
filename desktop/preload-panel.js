@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("panelApi", {
   setBossZoom: (level) => ipcRenderer.invoke("boss:zoom", level),
   getBossZoom: () => ipcRenderer.invoke("boss:zoom-get"),
   gotoChat: () => ipcRenderer.invoke("boss:goto"),
+  gotoUrl: (url) => ipcRenderer.invoke("boss:goto", url),
   openJob: (href) => ipcRenderer.invoke("boss:open-job", href),
   // 小红书舆情采集（主视图内打开）
   xhsOpen: (company) => ipcRenderer.invoke("xhs:open", company),
@@ -21,14 +22,22 @@ contextBridge.exposeInMainWorld("panelApi", {
   agentLog: () => ipcRenderer.invoke("agent:log"),
   agentLogClear: () => ipcRenderer.invoke("agent:log-clear"),
   agentStats: () => ipcRenderer.invoke("agent:stats"),
+  agentCancel: () => ipcRenderer.invoke("agent:cancel"),
+  agentCurrent: () => ipcRenderer.invoke("agent:current"),
+  // 能力
+  testApi: () => ipcRenderer.invoke("api:test"),
+  saveReport: (name, content) => ipcRenderer.invoke("file:save-report", name, content),
+  readLog: (lines) => ipcRenderer.invoke("log:read", lines),
   // 岗位匹配
   matchRun: () => ipcRenderer.invoke("match:run"),
   matchSchedule: (cfg) => ipcRenderer.invoke("match:schedule", cfg),
   matchStatus: () => ipcRenderer.invoke("match:status"),
   onMatchNew: (cb) => ipcRenderer.on("match:new", (_e, data) => cb(data)),
-  // 兼容旧接口（迁移期保留）
-  llmPrepInterview: (payload) => ipcRenderer.invoke("llm:prep-interview", payload),
-  analyzeCompany: (company) => ipcRenderer.invoke("company:analyze", company),
+  // 简历图片库
+  getImages: () => ipcRenderer.invoke("img:list"),
+  pickImage: () => ipcRenderer.invoke("img:pick"),
+  delImage: (id) => ipcRenderer.invoke("img:del", id),
+  readImage: (id) => ipcRenderer.invoke("img:read", id),
   // 窗口
   setPin: () => ipcRenderer.invoke("win:pin"),
   collapse: () => ipcRenderer.invoke("panel:collapse"),

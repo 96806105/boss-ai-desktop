@@ -1,0 +1,76 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2026-09-01",
+  "selectors": {
+    "jobDetail": {
+      "title": [
+        "h1:not([class*='similar']):not([class*='guide'])",
+        ".name .job-title",
+        ".info-primary .name",
+        ".job-title:not([class*='similar'])",
+        "[class*='job-title']:not([class*='similar'])"
+      ],
+      "salary": [
+        ".info-primary .salary",
+        ".salary:not([class*='similar'])",
+        ".name .badge",
+        "[class*='salary']:not([class*='similar'])",
+        ".badge"
+      ],
+      "company": [
+        ".job-detail-company li.company-name",
+        "li.company-name:not([class*='similar'])",
+        ".company-info-box .company-name",
+        ".company-name:not([class*='similar'])",
+        ".company-logo-name",
+        "[class*='company-name']:not([class*='similar'])",
+        ".company-info a",
+        ".company-info .name",
+        ".company-info"
+      ],
+      "tags": [
+        ".job-tags span",
+        ".tag-list span",
+        "[class*='job-tags'] span",
+        "[class*='tag-list'] span",
+        ".job-limit span",
+        ".job-keyword-list span"
+      ],
+      "desc": [
+        ".job-detail .job-sec-text",
+        ".job-detail-section .job-sec-text",
+        ".job-sec-text:not([class*='similar'])",
+        "[class*='job-sec-text']:not([class*='similar'])",
+        ".job-detail .text",
+        ".job-description"
+      ]
+    },
+    "listPage": {
+      "cardSelector": "li.job-card-box",
+      "activeCard": ".job-card-wrap.active",
+      "jobName": [".job-name", "a.job-name"],
+      "salary": ".job-salary",
+      "company": [".boss-info .boss-name", ".boss-name"],
+      "tags": ".tag-list li"
+    },
+    "chatPage": {
+      "messageSelectors": [".msg-item", ".im-list .message-item", ".message-item", "[class*='msg-item']", ".chat-msg", "[class*='chatMsg']"],
+      "inputSelectors": [
+        ".chat-input[contenteditable='true']",
+        "#chat-input[contenteditable='true']",
+        "[contenteditable='true'][data-placeholder]",
+        ".chat-input textarea",
+        ".chat-footer [contenteditable='true']",
+        ".chat-footer textarea",
+        "[class*='chat'] textarea",
+        "[class*='chat'] [contenteditable='true']"
+      ]
+    }
+  },
+  "urlPatterns": {
+    "jobDetail": "job_detail|jobDetail|web/geek/job[?/]|/web/geek/job\\b",
+    "jobList": "web/geek/jobs(?:\\?|$)|web/geek/job\\?",
+    "chat": "web/geek/chat"
+  },
+  "hitStats": {}
+}

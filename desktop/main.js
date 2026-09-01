@@ -18,6 +18,20 @@ app.commandLine.appendSwitch("no-proxy-server");
 // portable exe 的 userData 默认跟随 exe 位置，exe 移动/重下会导致登录态与设置丢失，每次都要重新登录。
 app.setPath("userData", path.join(app.getPath("appData"), "boss-ai-desktop"));
 
+// 单实例锁：禁止多开。多个实例并发读写同一 userData 会破坏 Chromium 的
+// Cookie/登录态数据库（SQLite 锁冲突），导致"每次都要重新登录"、站点识别不到登录态。
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+}
+
 let win = null;
 let bossView = null;
 let panelView = null;
@@ -75,13 +89,6 @@ if (!window.chrome.storage) {
       }
     }
   };
-}
-(() => {
-  const s = document.createElement("style");
-  s.id = "boss-ai-desktop-hide";
-  s.textContent = "#boss-ai-helper-host { display: none !important; }";
-  document.documentElement.appendChild(s);
-})();
 }
 `;
   const contentSrc = fs.readFileSync(
@@ -182,11 +189,25 @@ function createWindow() {
   panelView.webContents.loadFile(path.join(__dirname, "panel.html"));
   bossView.webContents.loadURL(CHAT_URL);
 
-  win.on("closed", () => { win = null; });
+  win.on("closed", () => {
+    win = null;
+    // 关闭主窗口即退出整个应用：销毁后台隐藏窗口（岗位匹配用），
+    // 否则 window-all-closed 不触发，主进程与后台进程会一直驻留内存。
+    if (matchView && !matchView.isDestroyed()) matchView.destroy();
+    matchView = null;
+  });
 }
 
 // ---------- 启动 ----------
+process.on("uncaughtException", (err) => {
+  logger.error("main", "uncaughtException:", (err && (err.stack || err.message)) || err);
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error("main", "unhandledRejection:", (reason && (reason.stack || reason.message)) || reason);
+});
+
 app.whenReady().then(() => {
+  if (!gotTheLock) return; // 已有实例在运行，本实例待退出
   logger.init({ dir: path.join(app.getPath("userData"), "logs"), level: "info" });
   logger.info("main", "app starting, version=", app.getVersion());
   store.load();

@@ -1,48 +1,20 @@
-const { BaseAgent } = require("./base");
+/**
+ * GreetingAgent v6（重构版）：
+ * 使用 AgentBase + prompt 模板 + resume-analysis skill
+ */
+const { AgentBase } = require("./agent-base");
 const store = require("../core/store");
-const { SKILL_WORDS } = require("../core/tools");
+const {
+  SKILL_WORDS, TECH_TERMS, SOFT_TERMS, EXEC_SUPPORT_TERMS,
+  isTechJd, isFreshman, extractJdKeywords, extractJdNeeds, rankResume
+} = require("../skills/resume-analysis/index");
 
 const STYLES = {
-  prof: "专业稳重：语气专业、真诚、简洁有力，不浮夸不套近乎，突出能力匹配",
-  warm: "热情亲和：态度热情积极，体现真诚、有礼貌、有亲和力，结尾带自然邀请",
-  brief: "简洁高效：篇幅短小精悍（招呼语60字内），直接切入重点"
+  prof: "标准礼貌：像BOSS直聘主流打招呼话术——您好+感兴趣开场，简述经验和优势，请参考简历，期待回复。简洁、正式、有礼",
+  warm: "热情亲和：有礼貌有亲和力，结尾自然邀请，保持简洁不啰嗦",
+  brief: "简洁高效：两三句话讲完，突出最有价值的匹配点，篇幅最短"
 };
 
-/** 从 JD（title+tags+desc）提取关键词：技能词表命中 + 词频 */
-function extractJdKeywords(jd) {
-  const text = [jd.title, jd.tags, jd.desc].filter(Boolean).join(" ").toLowerCase();
-  const freq = {};
-  for (const w of SKILL_WORDS) {
-    const re = new RegExp(w.replace(/[+.]/g, "\\$&"), "g");
-    let n = 0;
-    while (re.exec(text)) n++;
-    if (n > 0) freq[w] = n;
-  }
-  const words = Object.keys(freq).sort((a, b) => freq[b] - freq[a]);
-  return {
-    words,
-    top: words.slice(0, 6).join("、") || (words.length ? words.join("、") : "（无法提取，依据职位名称判断）")
-  };
-}
-
-/** 简历按空行切段，按 JD 关键词命中打相关度分，返回高/低相关片段 */
-function rankResume(resumeText, keywords) {
-  const empty = { high: [], low: [] };
-  if (!resumeText || !String(resumeText).trim()) return empty;
-  const segs = String(resumeText)
-    .split(/\n\s*\n/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 8);
-  for (const seg of segs) {
-    const hits = keywords.filter((w) => seg.toLowerCase().includes(w));
-    if (hits.length) empty.high.push({ text: seg.slice(0, 400), hits, score: hits.length });
-    else empty.low.push(seg.slice(0, 300));
-  }
-  empty.high.sort((a, b) => b.score - a.score);
-  return empty;
-}
-
-/** 最近发出的招呼语（防结构雷同） */
 function recentGreetings(limit = 3) {
   try {
     const list = store.get("bossAiHistory") || [];
@@ -52,93 +24,92 @@ function recentGreetings(limit = 3) {
   }
 }
 
-const NO_GO_START = "您好，我是\\s*(?:.+?)(?:的同学|的朋友)\\s*$";
+function extractVersionTexts(text) {
+  const t = String(text || "");
+  const re = /【\s*版本\s*[0-9一二三四五六七八九十]+\s*】/g;
+  const out = [];
+  let last = null;
+  let m;
+  while ((m = re.exec(t))) {
+    if (last) out.push(t.slice(last.end, m.index).trim());
+    last = { end: m.index + m[0].length };
+  }
+  if (last) out.push(t.slice(last.end).trim());
+  return out.filter((s) => s.length >= 10);
+}
 
-/** AI 痕迹禁用清单：职场黑话 / AI 连接词 / 万能敬语 / 空洞套话 */
-const FORBIDDEN = [
-  "高度契合", "快速胜任", "能力匹配", "期待与您进一步沟通", "希望能有机会", "很高兴认识你", "期待您的回复", "祝工作顺利",
-  "首先", "其次", "最后", "总之", "综上所述", "总而言之", "需要注意的是", "众所周知",
-  "贵司", "深知", "赋能", "落地", "沉淀", "抓手", "闭环", "思维模型", "方法论", "底层逻辑", "深耕", "专业素养", "综合素质",
-  "殷切", "诚挚", "万分", "深深", "贵公司", "有幸", "不胜荣幸"
-];
-
-/** 人话示例（few-shot）：只锚定语气与节奏，内容必须替换为简历真实信息 */
-const EXAMPLES_HIGH = [
-  "【示例A·直接亮牌】您好，我上份工作就是做抖音运营的，把一个号从 0 做到 10 万粉，选题、剪辑、发布全自己来。看到这个岗位要求独立起号，和我的经历正好对上，想和您聊聊。",
-  "【示例B·提问切入】您好，看到贵司在招短视频运营，我做过 3 年这个方向，从 0 起号到 10 万粉。想问下您这边账号现在是主打人设还是带货？想先了解下方向再跟您细聊。",
-  "【示例C·共鸣型】您好，我做过 3 年内容运营，特别理解起号前期没人看的时候有多熬人。我这边有一套从选题到剪辑的完整打法，把号做到过 10 万粉。看到贵司的岗位描述，感觉能帮上忙，想聊两句。"
-];
-
-const EXAMPLES_LOW = [
-  "【示例·低匹配诚实型】您好，我目前在做会计，看到贵司招短视频运营，我没有直接做过这个方向，但对内容行业很有兴趣，Excel 数据这块比较熟，想了解下这个岗位对新人有什么要求？",
-  "【示例·低匹配提问型】您好，看到贵司的短视频运营岗位，我上份工作是财务方向的，没直接做过运营。如果愿意给转行的机会，我学习能力还不错，想先了解下团队现在最需要补哪块？"
-];
-
-const THINK_GUIDE =
-  "动笔前先在心里过一遍（不要输出思考过程）：\n" +
-  "1) 对面 HR 一天要看几十条招呼语，他为什么要点开我的？——因为第一条提到的事和他 JD 里写的需求完全对得上；\n" +
-  "2) 我简历里哪段经历对这个岗位最值钱？——只有一个最值钱的点，不要平均用力；\n" +
-  "3) 我怎么开口能让人想回？——直接说事，别铺垫，别自我介绍开场。";
-
-/** 口语化规则：让输出像真人打字而非公文 */
-const HUMAN_RULES =
-  "写作时像一个真实的求职者在手机打字：\n" +
-  "1) 短句为主，一句说完就说下一句，不要凑排比、不要对称结构；\n" +
-  "2) 可以有\"其实\"\"之前\"\"这边\"\"哈\"\"~\"\"想请教下\"这类自然的词，但别滥用；\n" +
-  "3) 不要用冒号标题、不要分段列点、不要加粗、不要完美对齐；\n" +
-  "4) 数字用口语说法（\"10 万粉\"而不是\"粉丝数达10万余人\"）；\n" +
-  "5) 不要每句话都以\"我\"开头，句子长短错落；\n" +
-  "6) 结尾要么自然收住，要么带一个具体的问题或邀请，不要加\"期待您的回复\"这类礼貌句。";
-
-/**
- * 招呼语 Agent v4：
- * 相关性工程化（v3 保留）+ few-shot 人话示例 + 人设 + 思考前置 + AI 痕迹禁用
- */
-class GreetingAgent extends BaseAgent {
-  constructor() {
+class GreetingAgent extends AgentBase {
+  constructor({ learningAdapter } = {}) {
     super({
       id: "greeting",
       name: "招呼语专家",
       role: "求职沟通文案撰写",
       description: "基于职位信息与简历，生成两版像真人说的招呼语",
-      temperature: 0.8
+      temperature: 0.8,
+      learningAdapter
     });
   }
 
-  buildSys(settings, hasHighMatch, recent) {
+  buildSys(settings, hasHighMatch, recent, needs, tech, freshman, execSupport) {
     const s = settings || {};
     const style = STYLES[s.style] || STYLES.prof;
-    const examples = (hasHighMatch ? EXAMPLES_HIGH : EXAMPLES_LOW).join("\n\n");
 
-    let sys =
-      "你是求职者本人（不是求职顾问），正在BOSS直聘上主动联系招聘者。" +
-      "你的目标：让HR读完第一条就产生\"这人可以聊聊\"的念头。" +
-      "\n\n【人设】你是一个真实的求职者：说话直接、不端架子，用词口语化，知道自己最值钱的一段经历是什么。" +
-      "所有具体内容必须来自【简历·高相关片段】，禁止编造简历没有的信息（含具体数字、项目、经历）。" +
-      (hasHighMatch ? "" : "\n注意：简历与岗位没有直接交集时，坦白说明自己没做过，不编造经历，也不要说\"会一点\"\"了解过\"这类简历里没有的中间状态；可强调真实可迁移的能力并提一个具体问题。") +
-      "\n\n【思考前置】" + THINK_GUIDE +
-      "\n\n【语气示例（模仿这些示例的语感，但内容必须换成简历里的真实信息）】\n" + examples +
-      "\n\n【口语化规则】" + HUMAN_RULES +
-      "\n\n【风格】" + style +
-      "\n\n【禁用词】" + FORBIDDEN.join("、") + "——全文不得出现任何一个。" +
-      "全文必须中文，禁止夹杂英文单词或句子（技能名词如 Python、Excel 例外，需中文语境）。";
+    // 加载基础模板
+    let sys = this.renderPrompt("system.md", {
+      style,
+      forbiddenWords: require("../skills/communication/index").DEFAULT_FORBIDDEN.join("、")
+    });
 
+    // 追加条件段落
+    const sections = [
+      {
+        condition: !hasHighMatch,
+        content: "\n注意：简历与岗位交集较少时，可以坦然说明没有直接经验，同时亮出兴趣、学习能力和可迁移技能，不编造经历。"
+      },
+      {
+        condition: freshman,
+        content: "\n\n【身份策略：应届生】HR 在 BOSS 页面上能看到你的应届生身份，文案里不必再声明\"我是应届生\"。重点阐述实习经历、技能和潜力，用做过的事证明能力，收尾用\"请参考我的简历，期待您的回复！\""
+      },
+      {
+        condition: execSupport,
+        content: "\n\n【岗位类型：执行支撑岗（助理/文员/行政类）】这类岗位核心是细心、执行到位、靠谱、能补位。价值主张围绕：做事细致不出错、交代的事有回音。不要讲\"独立带队/操盘项目/战略\"这类话。"
+      },
+      {
+        condition: !tech,
+        content: "\n\n【岗位类型判定：非技术岗】全文禁止出现简历里的技术名词和项目技术细节，重点论证通用素质与岗位的匹配：沟通表达、服务意识、耐心、执行力、责任心。"
+      },
+      {
+        condition: !hasHighMatch,
+        content: "\n\n【简历与岗位交集较少（策略：坦诚+学习能力）】可以说\"没有直接做过XX方向\"，但要立刻接上兴趣+学得快+可迁移技能。简历与岗位毫无交集时，就讲通用素质+礼貌收尾，不编经历。"
+      }
+    ];
+
+    sys += this.buildConditionalSections(sections);
+
+    // 用户自定义 prompt
     if (s.customPrompt && String(s.customPrompt).trim()) {
       sys += "\n\n【用户自定义要求（必须严格遵守）】\n" + String(s.customPrompt).trim();
     }
+
+    // 最近已发出的招呼语
     if (recent.length) {
       sys += "\n\n【最近已发出的招呼语（严禁与它们开场方式、结构、句式雷同）】\n" + recent.map((t, i) => (i + 1) + ". " + t).join("\n");
     }
-    sys += "\n\n输出2个版本，每个版本以【版本1】【版本2】开头独占一行，两版之间空一行。两版的角度、开场、结尾必须明显不同。";
+
+    sys += "\n\n输出2个版本，每个版本以【版本1】【版本2】开头独占一行，两版之间空一行。两版必须从素材、开场句、侧重点、收尾句四个维度明显不同。全文不提问、不反问。";
     return sys;
   }
 
   buildMessages(input, ctx) {
     const jd = (input && input.jd) || input || {};
     const s = (input && input.settings) || (ctx && ctx.settings) || {};
-    const resumeText = s.resumeText || "";
+    const resumeText = store.resolveResume(s);
+    const tech = isTechJd(jd);
+    const freshman = isFreshman(resumeText);
+    const execSupport = !tech && EXEC_SUPPORT_TERMS.some((t) => String(jd.title || "").includes(t) || String(jd.tags || "").includes(t));
     const kw = extractJdKeywords(jd);
-    const ranked = rankResume(resumeText, kw.words);
+    const needs = extractJdNeeds(jd, tech);
+    const ranked = rankResume(resumeText, kw.words, needs, tech);
     const recent = recentGreetings(3);
 
     const user =
@@ -147,21 +118,33 @@ class GreetingAgent extends BaseAgent {
       "\n薪资：" + (jd.salary || "未知") +
       "\n标签：" + (jd.tags || "无") +
       "\n职位描述：\n" + (jd.desc || "无") +
-      "\n\n【JD 核心需求 · 按关键词提取】" + kw.top +
+      "\n\n【岗位类型判定】" + (tech ? "技术型岗位" : (execSupport ? "非技术型 · 执行支撑岗" : "非技术型岗位")) +
+      "\n\n【候选人身份】" + (freshman ? "应届毕业生" : "有经验候选人") +
+      "\n\n【JD 核心需求点 · 逐条提取】" + (needs.length ? "\n" + needs.map((n, i) => (i + 1) + ". " + n).join("\n") : "（无）") +
+      "\n\n【JD 关键词 · 词表命中】" + kw.top +
       (ranked.high.length
-        ? "\n\n【简历 · 与岗位高度相关的片段（素材只能从这里选取）】\n" + ranked.high.map((p, i) => "片段" + (i + 1) + "（命中：" + p.hits.join("、") + "）：" + p.text).join("\n\n") +
-          "\n\n【简历 · 其余片段（仅作背景了解，写招呼语时禁止引用）】\n" + (ranked.low.length ? ranked.low.join("\n---\n").slice(0, 2000) : "（无）")
+        ? "\n\n【简历 · 与岗位高度相关的片段】\n" + ranked.high.map((p, i) => "片段" + (i + 1) + "（需求点：" + (p.needHits.length ? p.needHits.join("、") : "—") + "；技能词：" + p.hits.join("、") + "）：" + p.text).join("\n\n") +
+          "\n\n【简历 · 其余片段（仅作背景了解）】\n" + (ranked.low.length ? ranked.low.join("\n---\n").slice(0, 2000) : "（无）")
         : "\n\n【简历】\n" + (resumeText ? resumeText.slice(0, 2500) : "（未提供简历）")) +
       "\n\n【最近已发出的招呼语（风格参考，结构不得雷同）】\n" + (recent.length ? recent.join("\n---\n") : "（无历史）") +
-      "\n\n（本次写作随机盐：" + Math.random().toString(36).slice(2, 8) + "——仅用于保证多次生成内容不重复，无需在文案中体现）";
+      "\n\n（本次写作随机盐：" + Math.random().toString(36).slice(2, 8) + "——仅用于保证多次生成内容不重复）";
 
-    return [{ role: "system", content: this.buildSys(s, ranked.high.length > 0, recent) }, { role: "user", content: user }];
+    return [{ role: "system", content: this.buildSys(s, ranked.high.length > 0, recent, needs, tech, freshman, execSupport) }, { role: "user", content: user }];
   }
 
   async execute(input, ctx) {
     const { jd, settings } = input;
-    return super.execute({ jd, settings }, ctx);
+    const run = () => super.execute({ jd, settings }, ctx);
+
+    const res = await run();
+    const vs = extractVersionTexts(res.text);
+    if (vs.length >= 2 && vs[0] === vs[1]) {
+      const retry = await run();
+      const vs2 = extractVersionTexts(retry.text);
+      if (vs2.length < 2 || vs2[0] !== vs2[1]) return retry;
+    }
+    return res;
   }
 }
 
-module.exports = { GreetingAgent, extractJdKeywords, rankResume };
+module.exports = { GreetingAgent, extractVersionTexts };

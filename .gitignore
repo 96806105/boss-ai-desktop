@@ -8,6 +8,9 @@ desktop/*.log
 desktop/settings.json
 desktop/*.db
 
+# 用户数据备份（含 API Key，绝不入库）
+backup/
+
 # 系统/编辑器
 .DS_Store
 Thumbs.db

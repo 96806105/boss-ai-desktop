@@ -2,8 +2,11 @@ const { GreetingAgent } = require("./agents/greeting");
 const { ReplyAgent } = require("./agents/reply");
 const { InterviewAgent } = require("./agents/interview");
 const { CompanyAgent } = require("./agents/company");
+const { CompanyParseAgent } = require("./agents/company-parse");
+const { RiskAgent } = require("./agents/risk");
 const { ApplicationAgent } = require("./agents/application");
 const { MatchAgent } = require("./agents/match");
+const { ChatAgent } = require("./agents/chat");
 
 /**
  * Agent 注册表：所有专业智能体的唯一入口。
@@ -22,8 +25,11 @@ register(new GreetingAgent());
 register(new ReplyAgent());
 register(new InterviewAgent());
 register(new CompanyAgent());
+register(new CompanyParseAgent());
+register(new RiskAgent());
 register(new ApplicationAgent());
 register(new MatchAgent());
+register(new ChatAgent());
 
 function get(id) {
   return registry.get(id) || null;

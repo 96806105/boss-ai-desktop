@@ -52,6 +52,7 @@ class BaseAgent {
   }
 
   async execute(input, ctx) {
+    if (ctx.signal && ctx.signal.aborted) throw new Error("任务已取消");
     const started = Date.now();
     logger.info("agent." + this.id, "start task=", String(input).slice(0, 120));
     const toolCtx = await this.resolveTools(input, ctx);
@@ -65,7 +66,8 @@ class BaseAgent {
       model: this.model || settings.model,
       messages,
       temperature: this.temperature,
-      maxRetries: this.maxRetries
+      maxRetries: this.maxRetries,
+      signal: ctx.signal
     });
     logger.info("agent." + this.id, "done in", Date.now() - started, "ms, chars=", text.length);
     return { text, meta: { agent: this.id, agentName: this.name, ms: Date.now() - started, usage } };

@@ -8,6 +8,9 @@ const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 // 基础抓取
 // ------------------------------------------------------------
 async function fetchText(url, opts = {}) {
+  const outer = opts.signal || null;
+  const timeout = AbortSignal.timeout(15000);
+  const abort = outer && !outer.aborted ? AbortSignal.any([outer, timeout]) : timeout;
   const res = await fetch(url, {
     headers: {
       "User-Agent": opts.ua || UA,
@@ -15,7 +18,7 @@ async function fetchText(url, opts = {}) {
       "Accept": "text/html,application/xhtml+xml",
       ...(opts.headers || {})
     },
-    signal: opts.signal || AbortSignal.timeout(15000)
+    signal: abort
   });
   if (!res.ok) throw new Error("HTTP " + res.status);
   return res.text();
@@ -151,6 +154,14 @@ function cleanText(s) {
   return String(s || "").replace(/\uFFFD/g, "").replace(/\u2028|\u2029/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/** 字段值规范化："1000万人民币/1000万元/1000万元人民币"→"1000万"，避免同值不同写法被当成两个候选 */
+function normFieldVal(v) {
+  return String(v || "")
+    .replace(/([\d,.]+亿)(?:元|人民币)/, "$1")
+    .replace(/([\d,.]+万)(?:元|人民币)/, "$1")
+    .trim();
+}
+
 function extractFields(texts) {
   const all = texts.map(cleanText).join("\n");
   const F = {};
@@ -170,7 +181,7 @@ function extractFields(texts) {
     let m;
     const re2 = new RegExp(re.source, re.flags.replace("g", "") + "g");
     while ((m = re2.exec(all))) {
-      const val = cleanText(m[1] || m[2] || "");
+      const val = normFieldVal(cleanText(m[1] || m[2] || ""));
       if (!val) continue;
       votes[val] = (votes[val] || 0) + 1;
     }
@@ -209,15 +220,17 @@ async function fetchBaike(url, signal) {
 
 // ------------------------------------------------------------
 // 多引擎聚合：给定查询列表，并行检索并去重汇总
+// signal：外部取消信号（用户停止任务时中断全部检索）
 // ------------------------------------------------------------
-async function multiSearch(queries, onProgress) {
+async function multiSearch(queries, onProgress, signal) {
   const results = [];
   const seen = new Set();
   const run = async ({ label, engines, q }) => {
     const engineList = Array.isArray(engines) ? engines : [engines];
     for (const engine of engineList) {
+      if (signal && signal.aborted) throw new Error("任务已取消");
       try {
-        const items = await searchEngine(engine, q);
+        const items = await searchEngine(engine, q, signal);
         for (const it of items) {
           const key = it.title;
           if (seen.has(key)) continue;
@@ -239,15 +252,15 @@ const TOOLS = { webSearch: {
     name: "webSearch",
     description: "多引擎搜索（百度/搜狗/Bing）聚合公司相关信息，返回标题+摘要+来源。",
     params: { company: "string", keywords: "string(可选)" },
-    async run({ company, keywords }) {
+    async run({ company, keywords }, { signal } = {}) {
       const q = '"' + company + '"' + (keywords ? " " + keywords : "");
       const items = await multiSearch([
         { label: "general", engines: ["baidu", "bing"], q },
         { label: "extended", engines: ["sogou", "bing"], q: q + " 企业信息 工商" }
-      ]);
+      ], null, signal);
       return items.slice(0, 12);
     }
   }
 };
 
-module.exports = { TOOLS, multiSearch, extractFields, fetchBaike, searchEngine, stripTags, SKILL_WORDS, extractResumeKeywords };
+module.exports = { TOOLS, multiSearch, extractFields, fetchBaike, searchEngine, stripTags, SKILL_WORDS, extractResumeKeywords, parseBaidu, parseBing, parseSogou };

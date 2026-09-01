@@ -1,0 +1,11 @@
+{
+  "id": "risk-assessment",
+  "name": "风险评估器",
+  "version": "1.0.0",
+  "description": "公司风险速查、司法风险评估、招聘口碑分析",
+  "tools": [
+    "localRiskScan"
+  ],
+  "triggers": [],
+  "config": {}
+}

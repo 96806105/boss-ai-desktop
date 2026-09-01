@@ -1,0 +1,18 @@
+{
+  "id": "web-intelligence",
+  "name": "网络情报采集",
+  "version": "1.0.0",
+  "description": "多引擎搜索引擎采集（百度/搜狗/Bing）+ 结构化字段抽取 + 百度百科抓取",
+  "tools": [
+    "search",
+    "multiSearch",
+    "extractFields",
+    "fetchBaike"
+  ],
+  "triggers": [],
+  "config": {
+    "engines": ["baidu", "sogou", "bing"],
+    "timeout": 15000,
+    "maxResults": 8
+  }
+}

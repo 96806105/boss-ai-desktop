@@ -1,9 +1,12 @@
-const { ipcMain } = require("electron");
+const { ipcMain, dialog, app } = require("electron");
+const fs = require("fs");
+const path = require("path");
 const logger = require("./core/logger");
 const store = require("./core/store");
 const llm = require("./core/llm");
 const orchestrator = require("./orchestrator");
 const { list: listAgents } = require("./registry");
+const imageBank = require("./core/image-bank");
 
 /**
  * IPC 路由器：所有主进程能力对渲染层的唯一通道。
@@ -41,6 +44,15 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
     return { ok: existed };
   });
 
+  // ---------- 简历图片库 ----------
+  ipcMain.handle("img:list", () => ({ ok: true, images: imageBank.list() }));
+  ipcMain.handle("img:pick", () => imageBank.pick(win));
+  ipcMain.handle("img:del", (_e, id) => ({ ok: imageBank.remove(String(id || "")) }));
+  ipcMain.handle("img:read", (_e, id) => {
+    const d = imageBank.readDataUrl(String(id || ""));
+    return d ? { ok: true, ...d } : { ok: false, error: "图片不存在" };
+  });
+
   // ---------- BOSS 页消息桥 ----------
   ipcMain.handle("boss:page-msg", async (_e, msg) => {
     try {
@@ -72,6 +84,36 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
         if (win) { win.show(); win.focus(); }
         return { ok: true };
       }
+      if (msg && msg.type === "cancel") {
+        let cancelled = false;
+        try { cancelled = orchestrator.cancel(); } catch (e) {}
+        if (matchAbort) { try { matchAbort.abort(); } catch (e) {} cancelled = true; }
+        return { ok: true, cancelled };
+      }
+      // 聊天列表页自动打开第一条会话：合成 click 会被 BOSS 新版页面忽略，须用 sendInputEvent 发真实输入事件
+      if (msg && msg.type === "desktop-open-first-chat" && typeof msg.x === "number" && typeof msg.y === "number") {
+        if (!bossView || bossView.webContents.isDestroyed()) return { ok: false, error: "页面未就绪" };
+        const wc = bossView.webContents;
+        const zoom = wc.getZoomFactor() || 1;
+        wc.sendInputEvent({ type: "mouseDown", x: Math.round(msg.x * zoom), y: Math.round(msg.y * zoom), button: "left", clickCount: 1 });
+        wc.sendInputEvent({ type: "mouseUp", x: Math.round(msg.x * zoom), y: Math.round(msg.y * zoom), button: "left", clickCount: 1 });
+        return { ok: true };
+      }
+      // 简历图片库（操作台悬浮组件调用）
+      if (msg && msg.type === "pick-image") {
+        const r = await imageBank.pick(win);
+        return { ok: true, ...r };
+      }
+      if (msg && msg.type === "list-images") {
+        return { ok: true, images: imageBank.list() };
+      }
+      if (msg && msg.type === "read-image") {
+        const d = imageBank.readDataUrl(String((msg && msg.id) || ""));
+        return d ? { ok: true, ...d } : { ok: false, error: "图片不存在" };
+      }
+      if (msg && msg.type === "delete-image") {
+        return { ok: imageBank.remove(String((msg && msg.id) || "")), images: imageBank.list() };
+      }
       return { ok: false, error: "未知消息类型" };
     } catch (err) {
       return { ok: false, error: String((err && err.message) || err) };
@@ -80,7 +122,9 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
 
   ipcMain.handle("boss:action", (_e, payload) => {
     if (!bossView || bossView.webContents.isDestroyed()) return { ok: false, error: "BOSS 页面未就绪" };
-    return dispatchToBoss(payload);
+    const timeout = (payload && payload._timeout) || 90000;
+    const { _timeout, ...rest } = payload || {};
+    return dispatchToBoss(rest, timeout);
   });
 
   // ---------- 智能体编排 ----------
@@ -89,7 +133,8 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
     const intent = req && req.intent;
     if (!intent) return { ok: false, error: "缺少智能体意图" };
     try {
-      const res = await orchestrator.invoke(intent, (req && req.input) ?? (req && req.task), {
+      const input = { ...((req && req.input) ?? (req && req.task) ?? {}), settings: store.getSettings() };
+      const res = await orchestrator.invoke(intent, input, {
         onProgress: (label, total) => {
           try { panelView.webContents.send("agent:event", { type: "progress", intent, label, total }); } catch (e) {}
         }
@@ -103,11 +148,76 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
   ipcMain.handle("agent:log-clear", () => ({ ok: true, cleared: orchestrator.clearLog() }));
   ipcMain.handle("agent:stats", () => ({ ok: true, stats: llm.getStats() }));
 
+  // ---------- 停止当前任务（智能体 / 岗位匹配后台检索） ----------
+  ipcMain.handle("agent:cancel", () => {
+    let cancelled = false;
+    try { cancelled = orchestrator.cancel(); } catch (e) {}
+    if (matchAbort) {
+      try { matchAbort.abort(); } catch (e) {}
+      cancelled = true;
+    }
+    return { ok: true, cancelled };
+  });
+  ipcMain.handle("agent:current", () => ({
+    ok: true,
+    current: orchestrator.getCurrent(),
+    busy: orchestrator.isBusy()
+  }));
+
+  // ---------- API 测试连接 ----------
+  ipcMain.handle("api:test", async () => {
+    const s = store.getSettings();
+    if (!s.apiKey) return { ok: false, error: "未配置 API Key，请先填写" };
+    try {
+      const r = await llm.call({
+        apiKey: s.apiKey,
+        model: s.model,
+        messages: [{ role: "user", content: "请只回复四个字：连接正常" }],
+        temperature: 0,
+        maxRetries: 0
+      });
+      return { ok: true, model: s.model || llm.DEFAULT_MODEL, text: String(r.text || "").slice(0, 60) };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
+
+  // ---------- 尽调报告导出 Markdown ----------
+  ipcMain.handle("file:save-report", async (_e, name, content) => {
+    try {
+      const def = String(name || "尽调报告").replace(/[\\/:*?"<>|]/g, "-").slice(0, 60) + ".md";
+      const r = await dialog.showSaveDialog(win, {
+        title: "导出报告",
+        defaultPath: def,
+        filters: [{ name: "Markdown", extensions: ["md"] }, { name: "文本文件", extensions: ["txt"] }]
+      });
+      if (r.canceled || !r.filePath) return { ok: false, cancelled: true };
+      fs.writeFileSync(r.filePath, String(content || ""), "utf8");
+      return { ok: true, path: r.filePath };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
+
+  // ---------- 日志读取（诊断用） ----------
+  ipcMain.handle("log:read", (_e, lines) => {
+    try {
+      const f = path.join(app.getPath("userData"), "logs", "app.log");
+      if (!fs.existsSync(f)) return { ok: true, lines: [], file: f };
+      const text = fs.readFileSync(f, "utf8");
+      const arr = text.split(/\r?\n/).filter(Boolean);
+      return { ok: true, lines: arr.slice(-(Math.max(20, Number(lines) || 100))), file: f };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  });
+
   // ---------- 岗位匹配（手动 + 定时 + 新匹配提醒） ----------
   const MATCH_SETTINGS_KEY = "bossAiMatchSettings";
   let matchTimer = null;
   let matchLastIds = null;
   let matchRunning = false;
+  let matchAbort = null;
 
   function getMatchSettings() {
     return { enabled: false, intervalMin: 30, threshold: 70, ...(store.get(MATCH_SETTINGS_KEY) || {}) };
@@ -194,19 +304,22 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
     return "";
   }
 
-  async function searchJobLibrary(matchViewRef, keywords, city, pagesPerWord, onStage) {
+  async function searchJobLibrary(matchViewRef, keywords, city, pagesPerWord, onStage, signal) {
     const all = [];
     const seen = new Set();
     const wc = matchViewRef && matchViewRef.webContents;
     if (!wc || wc.isDestroyed()) throw new Error("后台检索窗口未就绪");
     const pages = Math.max(1, Math.min(3, Number(pagesPerWord) || 1));
     for (let i = 0; i < keywords.length; i++) {
+      if (signal && signal.aborted) throw new Error("任务已取消");
       const kw = keywords[i];
       for (let pg = 1; pg <= pages; pg++) {
+        if (signal && signal.aborted) throw new Error("任务已取消");
         if (onStage) onStage("检索中：" + kw + (pages > 1 ? " · 第" + pg + "页" : "") + "（" + (i + 1) + "/" + keywords.length + " 个关键词）");
         const url = "https://www.zhipin.com/web/geek/jobs?query=" + encodeURIComponent(kw) + "&city=" + encodeURIComponent(city || "101010100") + (pg > 1 ? "&page=" + pg : "");
         await wc.loadURL(url).catch(() => {});
         await sleep(4500);
+        if (signal && signal.aborted) throw new Error("任务已取消");
         try {
           const rows = await wc.executeJavaScript(MATCH_COLLECT_JS, true);
           if (Array.isArray(rows)) {
@@ -226,15 +339,39 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
     return all;
   }
 
+  /** 后台检索窗口登录/风控检测：无法区分"无岗位"与"未登录/验证码"时给出准确提示 */
+  async function detectMatchBlocked(wc) {
+    try {
+      if (!wc || wc.isDestroyed()) return "后台窗口未就绪";
+      const t = await wc.executeJavaScript(
+        "(function(){ try { var b = document.body; return b ? b.innerText.slice(0, 4000) : ''; } catch (e) { return ''; } })()",
+        true
+      );
+      const s = String(t || "");
+      if (/验证码|安全验证|滑动验证/.test(s)) return "安全验证";
+      if (/扫码登录|扫码|登录后|未登录/.test(s) && !/立即登录/.test(s)) return "未登录";
+      return "";
+    } catch (e) {
+      return "";
+    }
+  }
+
   async function runMatchOnce({ silent } = {}) {
-    if (matchRunning || orchestrator.isBusy()) return { ok: false, error: "已有任务执行中，请稍候", busy: true };
+    if (matchRunning || orchestrator.isBusy()) {
+      const reason = matchRunning ? "上一次匹配尚未结束" : "有其他任务（" + ((orchestrator.getCurrent() || {}).agentName || "智能体") + "）执行中";
+      store.set({ bossAiMatchLastSkip: { ts: Date.now(), reason } });
+      return { ok: false, error: reason, busy: true };
+    }
     if (!bossView || bossView.webContents.isDestroyed()) return { ok: false, error: "BOSS 页面未就绪" };
     const settings = store.getSettings();
-    if (!settings.resumeText || !String(settings.resumeText).trim()) return { ok: false, error: "请先在设置页填写简历" };
+    const resumeText = store.resolveResume(settings);
+    if (!resumeText || !String(resumeText).trim()) return { ok: false, error: "请先在设置页填写简历" };
     matchRunning = true;
+    const matchController = new AbortController();
+    matchAbort = matchController;
     try {
       const { extractResumeKeywords } = require("./core/tools");
-      const keywords = extractResumeKeywords(settings.resumeText);
+      const keywords = extractResumeKeywords(resumeText);
       if (!keywords.length) return { ok: false, error: "无法从简历提取技能关键词，请完善简历中的技能/经历描述" };
       const city = (() => {
         const cfg = getMatchSettings();
@@ -246,17 +383,23 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
         try { panelView.webContents.send("agent:event", { type: "progress", intent: "match", label }); } catch (e) {}
       };
       onStage("正在从职位库检索：" + keywords.length + " 个关键词");
-      const jobs = await searchJobLibrary(matchView, keywords, city, 1, onStage);
-      if (!jobs.length) return { ok: false, error: "职位库检索无结果（可能触发验证码，请稍后重试或在 BOSS 页面手动操作一次）" };
+      const jobs = await searchJobLibrary(matchView, keywords, city, 1, onStage, matchController.signal);
+      if (!jobs.length) {
+        const blocked = await detectMatchBlocked(matchView.webContents);
+        if (blocked) return { ok: false, error: "职位库检索被拦截：" + blocked + "。请在左侧主窗口正常登录 BOSS 并手动打开一次职位列表后重试" };
+        return { ok: false, error: "职位库检索无结果（可能触发验证码，请稍后重试或在 BOSS 页面手动操作一次）" };
+      }
       onStage("已收集 " + jobs.length + " 个候选岗位，开始深度匹配");
-      const res = await orchestrator.invoke("match", { resumeText: settings.resumeText, jobs: jobs.slice(0, 60), extra: getMatchSettings().extra }, { onProgress: onStage });
+      const res = await orchestrator.invoke("match", { resumeText, jobs: jobs.slice(0, 60), extra: getMatchSettings().extra }, { onProgress: onStage, signal: matchController.signal });
       const matched = res.matched || [];
       const cfg = getMatchSettings();
       const prevIds = matchLastIds || new Set();
-      const newOnes = matched.filter((j) => j.score >= cfg.threshold && !prevIds.has(j.id));
+      // 首跑基线：仅当存在历史运行记录时才提示"新发现"，避免首次全量弹横幅
+      const hasBaseline = !!matchLastIds || !!store.get("bossAiMatchLastTs");
+      const newOnes = hasBaseline ? matched.filter((j) => j.score >= cfg.threshold && !prevIds.has(j.id)) : [];
       matchLastIds = new Set(matched.map((j) => j.id).filter(Boolean));
       if (!silent) notifyMatchNew(newOnes, cfg.threshold);
-      store.set({ bossAiMatchLastTs: Date.now(), bossAiMatchLastNew: newOnes.slice(0, 10) });
+      store.set({ bossAiMatchLastTs: Date.now(), bossAiMatchLastNew: newOnes.slice(0, 10), bossAiMatchLastSkip: null });
       return {
         ok: true,
         total: jobs.length,
@@ -268,9 +411,11 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
         text: res.text
       };
     } catch (err) {
+      if (matchController.signal.aborted) return { ok: false, cancelled: true, error: "已停止" };
       return { ok: false, error: String((err && err.message) || err) };
     } finally {
       matchRunning = false;
+      matchAbort = null;
     }
   }
 
@@ -295,7 +440,8 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
     ok: true,
     settings: getMatchSettings(),
     lastRunTs: store.get("bossAiMatchLastTs") || null,
-    lastNew: store.get("bossAiMatchLastNew") || []
+    lastNew: store.get("bossAiMatchLastNew") || [],
+    lastSkip: store.get("bossAiMatchLastSkip") || null
   }));
 
   // 定时器在注册阶段恢复（应用重启后继续生效）
@@ -309,40 +455,13 @@ function registerIpc({ win, bossView, panelView, matchView, layoutViews, setColl
   }
 
   // Agent 事件流 → 面板
-  const events = ["agent:start", "agent:done", "agent:error"];
+  const events = ["agent:start", "agent:done", "agent:error", "agent:cancelled"];
   for (const ev of events) {
     orchestrator.on(ev, (data) => {
       try { panelView.webContents.send("agent:event", { type: ev, ...data }); } catch (e) {}
     });
   }
   logger.info("ipc", "agent events forwarded");
-
-  // ---------- 面试准备（兼容旧接口，内部走面试 Agent） ----------
-  ipcMain.handle("llm:prep-interview", async (_e, payload) => {
-    try {
-      const res = await orchestrator.invoke("interview", payload, {
-        onProgress: () => {}
-      });
-      return { ok: true, text: res.text };
-    } catch (err) {
-      return { ok: false, error: String((err && err.message) || err) };
-    }
-  });
-
-  // ---------- 公司分析（兼容旧接口，内部走尽调 Agent） ----------
-  ipcMain.handle("company:analyze", async (_e, company) => {
-    if (!company || !String(company).trim()) return { ok: false, error: "请输入公司名称" };
-    try {
-      const res = await orchestrator.invoke("company", String(company).trim(), {
-        onProgress: (label) => {
-          try { panelView.webContents.send("agent:event", { type: "progress", intent: "company", label }); } catch (e) {}
-        }
-      });
-      return { ok: true, text: res.text };
-    } catch (err) {
-      return { ok: false, error: String((err && err.message) || err) };
-    }
-  });
 
   // ---------- 面板/窗口 ----------
   ipcMain.handle("panel:collapse", () => { setCollapsed(true); layoutViews(); return { ok: true }; });

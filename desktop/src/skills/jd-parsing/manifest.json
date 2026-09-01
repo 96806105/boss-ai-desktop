@@ -1,0 +1,19 @@
+{
+  "id": "jd-parsing",
+  "name": "JD 解析器",
+  "version": "1.0.0",
+  "description": "从 BOSS 页面提取和结构化职位信息，支持多级选择器容错",
+  "tools": [
+    "extractFromPage",
+    "decodePuaSalary"
+  ],
+  "triggers": [
+    {
+      "type": "page-change",
+      "description": "检测到职位详情页时自动提取 JD"
+    }
+  ],
+  "config": {
+    "selectorsPath": "./selectors.json"
+  }
+}

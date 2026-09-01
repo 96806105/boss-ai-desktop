@@ -18,13 +18,17 @@ function buildBody(model, messages, temperature) {
 
 /**
  * 模型网关：统一错误归一、超时、可重试（5xx/429/超时）、用量统计。
+ * 支持外部取消：传入 signal（如用户点击"停止"），中断后立即抛出"任务已取消"。
  * @returns {Promise<{text:string, usage:object}>}
  */
-async function call({ apiKey, model, messages, temperature, maxRetries = 2 }) {
+async function call({ apiKey, model, messages, temperature, maxRetries = 2, signal }) {
   if (!apiKey) throw new Error("未配置 API Key，请在设置页填写");
+  if (signal && signal.aborted) throw new Error("任务已取消");
   let lastErr = null;
   const started = Date.now();
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    const abort = signal && !signal.aborted ? AbortSignal.any([signal, timeout]) : timeout;
     try {
       const res = await fetch(API_BASE, {
         method: "POST",
@@ -33,7 +37,7 @@ async function call({ apiKey, model, messages, temperature, maxRetries = 2 }) {
           Authorization: "Bearer " + apiKey
         },
         body: JSON.stringify(buildBody(model, messages, temperature)),
-        signal: AbortSignal.timeout(TIMEOUT_MS)
+        signal: abort
       });
 
       const json = await res.json().catch(() => null);
@@ -54,6 +58,7 @@ async function call({ apiKey, model, messages, temperature, maxRetries = 2 }) {
       logger.info("llm", `ok model=${model || DEFAULT_MODEL} tokens=${usage.total_tokens || "?"} cost=${Date.now() - started}ms`);
       return { text, usage };
     } catch (err) {
+      if (signal && signal.aborted) throw new Error("任务已取消");
       const isTimeout = err && (err.name === "AbortError" || err.name === "TimeoutError" || err.code === "UND_ERR_CONNECT_TIMEOUT");
       lastErr = isTimeout ? new Error("请求超时，请稍后重试") : err;
       logger.warn("llm", `attempt ${attempt + 1} failed:`, lastErr.message);
@@ -67,4 +72,4 @@ function getStats() {
   return { ...usageStat };
 }
 
-module.exports = { call, getStats, DEFAULT_MODEL };
+module.exports = { call, getStats, DEFAULT_MODEL, buildBody };

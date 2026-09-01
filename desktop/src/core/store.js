@@ -56,4 +56,21 @@ function getSettings() {
   return store.bossAiSettings || {};
 }
 
-module.exports = { load, get, set, remove, getSettings };
+/**
+ * 解析当前生效的简历文本（多简历支持）：
+ * - 优先取 activeResumeId 命中的简历；
+ * - 无命中取 resumes[0]；
+ * - 无 resumes 时回退旧字段 resumeText（迁移兼容）。
+ */
+function resolveResume(settings) {
+  const s = settings || {};
+  const list = Array.isArray(s.resumes) ? s.resumes : [];
+  const active = list.find((r) => r && r.id === s.activeResumeId) || list[0];
+  if (active && String(active.text || "").trim()) return active.text;
+  for (const r of list) {
+    if (r && String(r.text || "").trim()) return r.text;
+  }
+  return String(s.resumeText || "");
+}
+
+module.exports = { load, get, set, remove, getSettings, resolveResume };
