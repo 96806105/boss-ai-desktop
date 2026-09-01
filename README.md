@@ -29,11 +29,11 @@
 
 ## 项目简介
 
-BOSS直聘 AI 助手是一个面向求职场景的桌面应用：在系统内嵌 BOSS直聘浏览器环境，右侧常驻 AI 面板，由 **6 个专业智能体（Agent）** 组成协作网络，覆盖求职全流程：
+BOSS直聘 AI 助手是一个面向求职场景的桌面应用：在系统内嵌 BOSS直聘浏览器环境，右侧常驻 AI 面板，由 **9 个专业智能体（Agent）** 组成协作网络，覆盖求职全流程：
 
-**沟通** → 打招呼语、消息回复、求职信撰写
-**准备** → 面试模拟、岗位匹配、公司尽调
-**决策** → 职位库智能检索、小红书口碑采集
+**沟通** → 打招呼语、消息回复、求职信撰写、通用聊天
+**准备** → 面试模拟、岗位匹配、公司尽调、公司名解析
+**决策** → 职位库智能检索、小红书口碑采集、风险速查
 
 所有生成内容基于用户真实简历与公开检索信息，杜绝编造；发送动作始终由用户手动确认，最大限度规避账号风控。
 
@@ -51,6 +51,9 @@ BOSS直聘 AI 助手是一个面向求职场景的桌面应用：在系统内嵌
 | 岗位匹配师 | 职位库深度匹配打分 | 简历关键词驱动全库检索 + 三问思考式打分 + 补充要求覆盖 |
 | 尽调分析师 | 输出企业尽调报告 | 百度/搜狗/Bing 三引擎并行采集 + 结构化字段抽取 |
 | 求职信助手 | 撰写正式自荐信 | 真实经历论证链 + 防编造约束 |
+| 聊天助手 | 通用问题解答与对话 | 上下文理解 + 简历匹配 + 多轮对话记忆 |
+| 公司名解析器 | 从文本提取标准化公司名称 | 智能实体识别 + 标准化处理 |
+| 避雷速查师 | 快速核查公司风险与口碑 | 司法风险扫描 + 招聘口碑分析 + 风险等级评估 |
 
 ### 🎯 岗位匹配（全库检索 + 定时监控）
 
@@ -105,25 +108,39 @@ BOSS直聘 AI 助手是一个面向求职场景的桌面应用：在系统内嵌
 │  │  并发锁 · 事件流 · 任务记忆 · 进度回调              │   │
 │  └──────┬───────────────────────────────────────────┘   │
 │  ┌──────┴─────────┐   ┌──────────────────────────────┐ │
-│  │   Registry     │   │          Agents              │ │
+│  │   Registry     │   │          Agents (9 个)        │ │
 │  │  greeting      │   │  ┌─────┐ ┌─────┐ ┌────────┐  │ │
 │  │  reply         │──▶│  │reply│ │greet│ │match   │  │ │
 │  │  interview     │   │  └─────┘ └─────┘ └────────┘  │ │
 │  │  company       │   │  ┌────────┐ ┌────────────┐   │ │
 │  │  match         │   │  │company │ │application │   │ │
 │  │  application   │   │  └────────┘ └────────────┘   │ │
+│  │  chat          │   │  ┌────────┐ ┌────────────┐   │ │
+│  │  company-parse │   │  │  chat  │ │risk-parse  │   │ │
+│  │  risk          │   │  └────────┘ └────────────┘   │ │
 │  └──────┬─────────┘   └──────────────┬───────────────┘ │
 │  ┌──────┴──────────┐   ┌─────────────┴──────────────┐  │
 │  │ core/llm 网关   │   │ core/tools 采集层            │  │
 │  │ 重试/超时/用量   │   │ 百度/搜狗/Bing · 字段抽取    │  │
 │  └─────────────────┘   └────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │              Skills (6 个技能模块)                 │   │
+│  │  communication · jd-parsing · resume-analysis     │   │
+│  │  risk-assessment · web-intelligence               │   │
+│  └──────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │           LearningAdapter (自适应学习)             │   │
+│  │  跟踪用户反馈 · 动态调整 prompt 策略                │   │
+│  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **关键设计**：
 
 - **数据流**：BOSS 页面 DOM 采集（content.js）→ IPC → Orchestrator 路由 → Agent（工具检索 + LLM）→ 结果回渲染
-- **Agent 基类**（`BaseAgent`）：统一生命周期 `resolveTools → buildMessages → llm.call`，每个 Agent 独立角色/温度/模型/工具
+- **Agent 基类**（`AgentBase`）：统一生命周期 `resolveTools → buildMessages → llm.call`，每个 Agent 独立角色/温度/模型/工具
+- **Skills 系统**：模块化技能封装，支持动态加载与热插拔
+- **LearningAdapter**：跟踪 accept/modify/reject 事件，动态调整 prompt 策略，实现自适应学习
 - **LLM 网关**：超时 / 5xx 重试 / 用量统计 / 按模型裁剪参数（reasoner 不支持 temperature）
 - **并发保护**：同一时刻仅允许一个 Agent 任务运行，定时任务自动跳过忙时
 
@@ -139,6 +156,7 @@ BOSS直聘 AI 助手是一个面向求职场景的桌面应用：在系统内嵌
 | 编排 | 自研 Supervisor（EventEmitter + 注册表） |
 | LLM | DeepSeek API（chat / reasoner 双模型） |
 | 采集 | 百度 / 搜狗 / Bing 多引擎 + 容错解析 |
+| 测试 | Jest（单元测试 + 集成测试） |
 | 打包 | electron-builder（portable 单文件 exe） |
 
 ---
@@ -159,6 +177,9 @@ cd desktop
 npm install
 npm start                 # 开发运行
 npm start -- --remote-debugging-port=9333   # 带调试端口
+npm test                  # 运行测试
+npm run test:unit         # 仅运行单元测试
+npm run test:integration  # 仅运行集成测试
 npm run build             # 打包 → dist/BOSSAI助手.exe
 ```
 
@@ -195,13 +216,43 @@ boss-ai-desktop/
 │   ├── preload-panel.js     # 面板 API 暴露
 │   ├── panel.html/css/js    # AI 面板 UI
 │   ├── content/content.js   # 注入 BOSS：JD 抓取/聊天监听/筛选/悬浮组件
+│   ├── prompts/             # Agent prompt 模板（10 个 agent）
 │   └── src/
 │       ├── core/            # logger / store / llm 网关 / tools 采集层
-│       ├── agents/          # 6 个专业智能体（base 基类）
+│       │   ├── llm.js       # LLM 调用网关（超时/重试/用量统计）
+│       │   ├── learning-adapter.js  # 自适应学习模块
+│       │   └── image-bank.js        # 简历图片管理
+│       ├── agents/          # 9 个专业智能体
+│       │   ├── agent-base.js        # Agent 基类（统一生命周期）
+│       │   ├── greeting.js          # 招呼语专家
+│       │   ├── reply.js             # 回复助手
+│       │   ├── interview.js         # 面试教练
+│       │   ├── company.js           # 尽调分析师
+│       │   ├── match.js             # 岗位匹配师
+│       │   ├── application.js       # 求职信助手
+│       │   ├── chat.js              # 聊天助手
+│       │   ├── company-parse.js     # 公司名解析器
+│       │   └── risk.js              # 避雷速查师
+│       ├── skills/          # 技能模块（6 个）
+│       │   ├── skill-base.js        # 技能基类
+│       │   ├── skill-loader.js      # 技能加载器
+│       │   ├── communication/       # 沟通讯息技能
+│       │   ├── jd-parsing/          # JD 解析技能
+│       │   ├── resume-analysis/     # 简历分析技能
+│       │   ├── risk-assessment/     # 风险评估技能
+│       │   └── web-intelligence/    # 网络情报技能
+│       ├── utils/           # 工具库（7 个模块）
+│       │   ├── dom-helpers.js       # DOM 操作辅助
+│       │   ├── prompt-loader.js     # Prompt 模板加载器
+│       │   ├── status-helpers.js    # 状态管理辅助
+│       │   ├── string-utils.js      # 字符串工具
+│       │   ├── text-parsing.js      # 文本解析工具
+│       │   └── ui-components.js     # UI 组件
 │       ├── registry.js      # Agent 注册表
 │       ├── orchestrator.js  # Supervisor 编排
 │       └── ipc.js           # IPC 路由
 ├── README.md
+├── LICENSE
 └── .gitignore
 ```
 
