@@ -1,3 +1,6 @@
+<!-- migrated-to-boss-ai-assistant -->
+> 📦 **迁移公告**：本项目已迁移至 [sdss-arch/boss-ai-assistant](https://github.com/sdss-arch/boss-ai-assistant)，并在新仓库中持续维护（新增网页助手、自动辅助、工作台、完整测试与 CI/CD）。旧仓库仅作历史存档，请前往新仓库获取最新版本与文档。
+
 # BOSS直聘 AI 助手（桌面端）
 
 > 基于 Electron 的多智能体求职辅助系统 —— 从打招呼到入职的全流程 AI 陪跑
